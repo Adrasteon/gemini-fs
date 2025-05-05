@@ -1,0 +1,125 @@
+/* Basic styles for the chat webview */
+
+* {
+    box-sizing: border-box; /* Apply border-box sizing globally */
+}
+
+body {
+    box-sizing: border-box; /* Ensure body also respects border-box */
+    font-family: var(--vscode-font-family, Arial, sans-serif);
+    font-size: var(--vscode-font-size, 13px);
+    color: var(--vscode-editor-foreground);
+    background-color: var(--vscode-editor-background);
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100vh; /* Full viewport height */
+    overflow: hidden; /* Prevent body scrolling */
+}
+
+.chat-container {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1; /* Take remaining height */
+    height: 100%;
+}
+
+.messages-area {
+    flex-grow: 1; /* Takes up available space */
+    overflow-y: auto; /* Enables scrolling for messages */
+    padding: 10px;
+    border-bottom: 1px solid var(--vscode-editorWidget-border, #454545);
+}
+
+.message {
+    margin-bottom: 10px;
+    padding: 8px 12px;
+    border-radius: 5px;
+    max-width: 80%;
+    word-wrap: break-word; /* Wrap long words */
+}
+
+.message.user {
+    background-color: var(--vscode-list-activeSelectionBackground, #094771);
+    color: var(--vscode-list-activeSelectionForeground, #ffffff);
+    margin-left: auto; /* Align user messages to the right */
+    text-align: right;
+}
+
+.message.bot {
+    background-color: var(--vscode-list-inactiveSelectionBackground, #37373d);
+    color: var(--vscode-list-inactiveSelectionForeground, #cccccc);
+    margin-right: auto; /* Align bot messages to the left */
+    text-align: left;
+}
+
+.message.info {
+    background-color: var(--vscode-editorWidget-background, #252526); /* Subtle background */
+    color: var(--vscode-descriptionForeground, #7f7f7f); /* Dimmer text */
+    border: 1px dashed var(--vscode-editorWidget-border, #454545); /* Dashed border for info */
+    margin-right: auto;
+    text-align: left;
+}
+
+.message.error {
+    background-color: var(--vscode-inputValidation-errorBackground, #5a1d1d);
+    color: var(--vscode-inputValidation-errorForeground, #ffffff);
+    border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100);
+    margin-right: auto;
+    text-align: left;
+}
+
+.message.confirmation {
+    background-color: var(--vscode-peekViewResult-selectionBackground, rgba(58, 67, 81, 0.7)); /* Use a distinct background */
+    color: var(--vscode-peekViewResult-selectionForeground, #ffffff);
+    border: 1px solid var(--vscode-peekViewTitle-background, #1e1e1e);
+    margin-right: auto;
+    text-align: left;
+}
+
+.message.confirmation button {
+    margin-left: 10px; /* Space between text and buttons, and between buttons */
+    padding: 4px 8px;
+    cursor: pointer;
+    border: 1px solid var(--vscode-button-border, transparent);
+    border-radius: 3px;
+    background-color: var(--vscode-button-secondaryBackground, #3a3d41);
+    color: var(--vscode-button-secondaryForeground, #ffffff);
+}
+
+.input-area {
+    display: flex;
+    padding: 10px;
+    background-color: var(--vscode-sideBar-background, #252526); /* Match sidebar bg */
+}
+
+textarea#message-input {
+    flex-grow: 1;
+    resize: none; /* Prevent manual resizing */
+    padding: 8px;
+    border: 1px solid var(--vscode-input-border, #3c3c3c);
+    background-color: var(--vscode-input-background, #3c3c3c);
+    color: var(--vscode-input-foreground, #cccccc);
+    margin-right: 5px;
+    min-height: 40px; /* Minimum height */
+    max-height: 150px; /* Maximum height before scrolling */
+    font-family: inherit;
+    font-size: inherit;
+}
+
+button#send-button {
+    padding: 8px 15px;
+    background-color: var(--vscode-button-background, #0e639c);
+    color: var(--vscode-button-foreground, #ffffff);
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    align-self: flex-end; /* Align button to bottom of input area */
+    transition: background-color 0.2s ease; /* Smooth hover transition */
+}
+
+button#send-button:hover {
+    background-color: var(--vscode-button-hoverBackground, #1177bb);
+}
+

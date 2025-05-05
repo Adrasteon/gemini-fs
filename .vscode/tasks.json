@@ -1,0 +1,76 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+            "label": "Watch All",
+            "dependsOn": [
+                "pnpm: watch:tsc",
+                "pnpm: watch:esbuild"
+            ],
+            "presentation": {
+                "reveal": "never"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+        {
+            "type": "shell",
+            "command": "pnpm run watch:esbuild",
+            "group": "build",
+            "problemMatcher": "$esbuild-watch",
+            "isBackground": true,
+            "label": "pnpm: watch:esbuild",
+            "presentation": {
+                "group": "watch",
+                "reveal": "never"
+            }
+        },
+		{
+            "type": "shell",
+            "command": "pnpm run watch:tsc",
+            "group": "build",
+            "problemMatcher": "$tsc-watch",
+            "isBackground": true,
+            "label": "pnpm: watch:tsc",
+            "presentation": {
+                "group": "watch",
+                "reveal": "never"
+            }
+        },
+		{
+			"label": "Build",
+			"type": "shell",
+			"command": "pnpm run build",
+			"problemMatcher": [
+				"$tsc",
+				"$esbuild"
+			],
+			"group": "build",
+			"presentation": {
+				"reveal": "silent"
+			}
+		},
+		{
+			"type": "shell",
+			"command": "pnpm run watch-tests",
+			"label": "pnpm: watch-tests",
+			"problemMatcher": "$tsc-watch",
+			"isBackground": true,
+			"presentation": {
+				"reveal": "never",
+				"group": "watchers"
+			},
+			"group": "build"
+		},
+		{
+			"label": "Watch Extension and Tests",
+			"dependsOn": [
+				"Watch All",
+				"pnpm: watch-tests"
+			],
+			"problemMatcher": []
+		}
+	]
+}
