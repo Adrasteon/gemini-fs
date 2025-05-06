@@ -259,4 +259,26 @@ export class GeminiService {
             vscode.window.showErrorMessage(`Failed to store API key: ${errorMessage}`);
         }
     }
+
+    /**
+     * Retrieves the currently stored API key from VS Code's SecretStorage.
+     * This is primarily for UI purposes (e.g., letting the webview know if a key is set).
+     * @returns The API key string if found, otherwise undefined.
+     */
+    public async getApiKey(): Promise<string | undefined> {
+        if (!this.context) {
+            console.warn("Extension context is not available in GeminiService. Cannot retrieve API key.");
+            // Optionally, show a less intrusive message or just log,
+            // as this might be called by UI elements just checking status.
+            // vscode.window.showWarningMessage("Cannot check API key status: Extension context unavailable.");
+            return undefined;
+        }
+        try {
+            const apiKey = await this.context.secrets.get(GEMINI_API_KEY_SECRET_KEY);
+            return apiKey;
+        } catch (error) {
+            console.error("Failed to retrieve Gemini API key from secrets:", error);
+            return undefined;
+        }
+    }
 }
