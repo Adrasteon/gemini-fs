@@ -1,71 +1,39 @@
-# gemini-fs README
+# Gemini FS Chat
 
-This is the README for your extension "gemini-fs". After writing up a brief description, we recommend including the following sections.
+Gemini FS Chat is a VS Code extension that allows you to interact with the Google Gemini AI models and perform file system operations within your workspace through a chat interface.
 
 ## Features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+*   **Chat with Gemini:** Engage in conversations with Gemini models directly within VS Code.
+*   **File System Interaction:**  Use slash commands to read and (with confirmation) modify or create files within your project's root directory.
+    *   `/read <filePath>`: Displays the content of a file in the chat.
+    *   `/list [<folderPath>]`: Lists the files and folders in the specified directory (defaults to workspace root).
+    *   `/create <filePath> [description of content for Gemini to generate]`: Creates a new file (if it doesn't exist) at the given path. If a description is provided, Gemini will generate content for the file based on that description. Otherwise, an empty file is created.
+    *   `/write <filePath> <description of changes for Gemini>`: Modifies the content of an existing file. You provide a description of the changes you want, and Gemini proposes a new file content based on that.  A preview of the changes (or a full replacement of content for new files) is displayed for your review and confirmation.
+    *   `/delete <filePath>`:  Deletes a file or folder. Requires explicit user confirmation in the webview.
+*   **Secure Operations:** All file system interactions are carefully validated to ensure they occur within the boundaries of your open workspace and require explicit confirmation for any modifications or deletions.
 
-For example if there is an image subfolder under your extension project workspace:
-
-\!\[feature X\]\(images/feature-x.png\)
-
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+**Current Progress:**
+*   Basic chat functionality with Gemini is implemented.
+*   File reading (`/read`) and listing (`/list`) commands are functional.
+*   The framework for file creation (`/create`), writing (`/write`), and deletion (`/delete`) is set up, including user confirmation prompts in the webview, but full logic and UI for diffs/previews are still under development.
 
 ## Requirements
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+*   VS Code version 1.85.0 or higher.
+*   A Google AI Studio API key. You can obtain one from [https://aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey).
 
 ## Extension Settings
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+*   `geminiFS.modelName`:  Specifies the Gemini model to use for chat interactions. Defaults to `gemini-1.5-flash-latest`. You can change this in VS Code settings (e.g., to `gemini-pro` if you have access).
 
 ## Known Issues
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+*   The UI for previewing file modifications and displaying diffs is basic and may lack advanced features like syntax highlighting.
+*   Error handling and user feedback may be inconsistent in some scenarios.
+*   Testing coverage is still limited.
 
 ## Release Notes
 
-Users appreciate release notes as you update your extension.
-
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
-
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+### 0.0.1
+Initial pre-release version. Features a basic chat interface with Gemini and supports file reading and listing. Implements a framework for file creation, modification, and deletion, including user confirmation, but UI for previews/diffs is still rudimentary.

@@ -36,24 +36,35 @@
             border: 0;
         }
     </style>
+    <style nonce="${nonce}">
+        /* Utility class to hide elements */
+        .hidden {
+            display: none !important; /* Important to override potential other display rules if needed */
+        }
+    </style>
 </head>
 <body>
-    <div class="chat-container">
-        <div id="chat-messages" class="messages-area" aria-live="polite" aria-atomic="false">
-            <!-- Chat messages will be appended here -->
+    <main class="chat-container">
+        <div id="chat-messages" class="messages-area" role="log" aria-live="polite" aria-atomic="false">
+            <!-- Chat messages will be appended here. aria-atomic="false" means screen readers will announce changes without re-reading the entire log. -->
         </div>
+
         <div class="input-area">
-            <label for="message-input" class="visually-hidden">Chat Input</label>
-            <textarea id="message-input" placeholder="Type your message or command..."></textarea>
+            <label for="message-input" class="visually-hidden">Chat Input</label> <!-- Good for accessibility -->
+            <textarea id="message-input" placeholder="Type your message or command..." aria-label="Chat input message or command"></textarea>
             <button id="send-button" type="button">Send</button>
         </div>
-        <div id="file-preview-area" class="file-preview-container" style="display: none;"> <!-- Initially hidden -->
-            <h3 id="file-name"></h3>
-            <div id="file-preview" class="file-preview-content">
-                <!-- File content or diff will be shown here -->
+
+        <section id="file-preview-area" class="file-preview-container hidden" role="region" aria-labelledby="file-preview-heading">
+            <h3 id="file-preview-heading">File Preview</h3> <!-- Changed ID to be more descriptive for aria-labelledby -->
+            <div id="file-name-display" class="file-name-display">
+                <!-- File name will be dynamically inserted here by script.js -->
             </div>
-        </div>
-    </div>
+            <div id="file-preview-content" class="file-preview-content">
+                <!-- File content, diff, or confirmation buttons will be shown here -->
+            </div>
+        </section>
+    </main>
 
     <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>

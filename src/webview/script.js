@@ -1,17 +1,27 @@
 // @ts-ignore
 const vscode = acquireVsCodeApi();
-let currentFilePath = null;
-let currentFileContent = null;
+// Global state for the current file being previewed, if any.
+let activePreview = {
+    filePath: null,
+    action: null, // 'create', 'write', or 'delete'
+    proposedContent: null // For create/write
+};
 
 // Define constants for message commands to improve maintainability and reduce typos
 const MESSAGE_COMMANDS = {
+    // Webview to Extension
     GET_API_KEY: 'getApiKey',
     SEND_TO_GEMINI: 'sendToGemini',
+    CONFIRM_CREATE: 'confirmCreate',
+    CONFIRM_WRITE: 'confirmWrite',
+    CONFIRM_DELETE: 'confirmDelete',
+    DISCARD_CHANGES: 'discardChanges', // User discards a preview/confirmation
+
+    // Extension to Webview
     API_KEY: 'apiKey',
     GEMINI_RESPONSE: 'geminiResponse',
-    FILE_CONTENT: 'fileContent',
-    APPLY_CHANGES: 'applyChanges',
-    DISCARD_CHANGES: 'discardChanges',
+    SHOW_FILE_PREVIEW: 'showFilePreview', // For create/write previews
+    CONFIRM_DELETE_PROMPT: 'confirmDeletePrompt', // For delete confirmation
     CHANGES_APPLIED: 'changesApplied',
     CHANGES_DISCARDED: 'changesDiscarded',
     ERROR: 'error',
@@ -25,12 +35,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const sendButton = document.getElementById('send-button');
     const messageInput = document.getElementById('message-input');
     const chatMessages = document.getElementById('chat-messages');
-    const filePreview = document.getElementById('file-preview');
-    const fileNameElement = document.getElementById('file-name');
+
+    const filePreviewArea = document.getElementById('file-preview-area');
+    const fileNameDisplayElement = document.getElementById('file-name-display');
+    const filePreviewContentElement = document.getElementById('file-preview-content');
 
     // Defensive check for essential elements
-    if (!sendButton || !messageInput || !chatMessages || !filePreview || !fileNameElement) {
-        console.error('One or more essential UI elements are missing from the DOM.');
+    if (!sendButton || !messageInput || !chatMessages || !filePreviewArea || !fileNameDisplayElement || !filePreviewContentElement) {
+        console.error('One or more essential UI elements are missing from the DOM.', {sendButton, messageInput, chatMessages, filePreviewArea, fileNameDisplayElement, filePreviewContentElement });
         // Optionally, display an error message in the webview UI
         return;
     }
@@ -42,7 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const message = messageInput.value;
         if (message.trim() !== '') {
             appendMessage('You', message);
-            vscode.postMessage({ command: MESSAGE_COMMANDS.SEND_TO_GEMINI, text: message }); // Removed double quotes around the object
+            vscode.postMessage({ command: MESSAGE_COMMANDS.SEND_TO_GEMINI, text: message });
             messageInput.value = '';
         }
     });
@@ -54,6 +66,20 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    function clearAndHidePreview() {
+        filePreviewContentElement.innerHTML = '';
+        fileNameDisplayElement.textContent = '';
+        filePreviewArea.classList.add('hidden');
+        activePreview = { filePath: null, action: null, proposedContent: null };
+    }
+
+    function showPreviewArea() {
+        filePreviewArea.classList.remove('hidden');
+        // Scroll the preview area into view if it's long
+        filePreviewArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+
     // --- Message Handlers ---
     const commandHandlers = {
         [MESSAGE_COMMANDS.API_KEY]: (message) => {
@@ -64,54 +90,107 @@ document.addEventListener('DOMContentLoaded', () => {
         [MESSAGE_COMMANDS.GEMINI_RESPONSE]: (message) => {
             appendMessage('Gemini', message.text);
         },
-        [MESSAGE_COMMANDS.FILE_CONTENT]: (message) => {
-            currentFilePath = message.filePath;
-            currentFileContent = message.content;
-            fileNameElement.textContent = `File: ${message.filePath}`;
-            
+        [MESSAGE_COMMANDS.SHOW_FILE_PREVIEW]: (message) => {
+            activePreview.filePath = message.filePath;
+            activePreview.action = message.action; // 'create' or 'write'
+            activePreview.proposedContent = message.proposedContent;
+
+            fileNameDisplayElement.textContent = `File: ${message.filePath}`;
+            filePreviewContentElement.innerHTML = ''; // Clear previous content
+
+            if (message.message) {
+                const infoMessage = document.createElement('p');
+                infoMessage.textContent = message.message;
+                filePreviewContentElement.appendChild(infoMessage);
+            }
+
             const preElement = document.createElement('pre');
             const codeElement = document.createElement('code');
-            // Basic syntax highlighting for diff (very rudimentary)
-            const lines = message.diff.split('\n');
-            lines.forEach(line => {
-                const span = document.createElement('span');
-                if (line.startsWith('+')) {
-                    span.className = 'diff-added';
-                } else if (line.startsWith('-')) {
-                    span.className = 'diff-removed';
-                }
-                span.textContent = line + '\n'; // textContent is safer
-                codeElement.appendChild(span);
-            });
 
+            if (message.action === 'write' && message.originalContent) {
+                // Basic diff rendering (can be improved with a proper diff library)
+                // For simplicity, just showing proposed content for now.
+                // A real diff would compare message.originalContent and message.proposedContent
+                const diffHeader = document.createElement('h4');
+                diffHeader.textContent = 'Proposed Changes:';
+                filePreviewContentElement.appendChild(diffHeader);
+                codeElement.textContent = message.proposedContent;
+            } else { // For 'create' or 'write' without original content for diff
+                codeElement.textContent = message.proposedContent;
+            }
             preElement.appendChild(codeElement);
-            filePreview.innerHTML = ''; // Clear previous content
-            filePreview.appendChild(preElement);
+            filePreviewContentElement.appendChild(preElement);
 
-            const applyButton = document.createElement('button');
-            applyButton.textContent = 'Apply Changes';
-            applyButton.onclick = () => {
-                vscode.postMessage({ command: MESSAGE_COMMANDS.APPLY_CHANGES, filePath: currentFilePath, newContent: message.newContent });
-                filePreview.innerHTML = '<p>Changes applied. Ask for another change or read a new file.</p>';
-                fileNameElement.textContent = '';
+            const actionButton = document.createElement('button');
+            if (message.action === 'create') {
+                actionButton.textContent = 'Create File';
+                actionButton.onclick = () => {
+                    vscode.postMessage({
+                        command: MESSAGE_COMMANDS.CONFIRM_CREATE,
+                        filePath: activePreview.filePath,
+                        proposedContent: activePreview.proposedContent
+                    });
+                    clearAndHidePreview();
+                };
+            } else { // 'write'
+                actionButton.textContent = 'Apply Changes';
+                actionButton.onclick = () => {
+                    vscode.postMessage({
+                        command: MESSAGE_COMMANDS.CONFIRM_WRITE,
+                        filePath: activePreview.filePath,
+                        proposedContent: activePreview.proposedContent
+                    });
+                    clearAndHidePreview();
+                };
+            }
+
+            const discardButton = document.createElement('button');
+            discardButton.textContent = 'Discard';
+            discardButton.onclick = () => {
+                vscode.postMessage({ command: MESSAGE_COMMANDS.DISCARD_CHANGES, filePath: activePreview.filePath });
+                clearAndHidePreview();
+            };
+
+            filePreviewContentElement.appendChild(actionButton);
+            filePreviewContentElement.appendChild(discardButton);
+            showPreviewArea();
+        },
+        [MESSAGE_COMMANDS.CONFIRM_DELETE_PROMPT]: (message) => {
+            activePreview.filePath = message.filePath;
+            activePreview.action = 'delete';
+
+            fileNameDisplayElement.textContent = `Confirm Deletion: ${message.filePath}`;
+            filePreviewContentElement.innerHTML = ''; // Clear previous content
+
+            const confirmMessage = document.createElement('p');
+            confirmMessage.textContent = message.message;
+            confirmMessage.classList.add('warning-message'); // Add a class for styling if needed
+            filePreviewContentElement.appendChild(confirmMessage);
+
+            const deleteButton = document.createElement('button');
+            deleteButton.textContent = 'Confirm Delete';
+            deleteButton.classList.add('delete-button'); // Add a class for styling
+            deleteButton.onclick = () => {
+                vscode.postMessage({ command: MESSAGE_COMMANDS.CONFIRM_DELETE, filePath: activePreview.filePath });
+                clearAndHidePreview();
             };
 
             const discardButton = document.createElement('button');
-            discardButton.textContent = 'Discard Changes';
+            discardButton.textContent = 'Cancel';
             discardButton.onclick = () => {
-                vscode.postMessage({ command: MESSAGE_COMMANDS.DISCARD_CHANGES, filePath: currentFilePath });
-                filePreview.innerHTML = '<p>Changes discarded. Ask for another change or read a new file.</p>';
-                fileNameElement.textContent = '';
+                vscode.postMessage({ command: MESSAGE_COMMANDS.DISCARD_CHANGES, filePath: activePreview.filePath });
+                clearAndHidePreview();
             };
-            
-            filePreview.appendChild(applyButton);
-            filePreview.appendChild(discardButton);
+
+            filePreviewContentElement.appendChild(deleteButton);
+            filePreviewContentElement.appendChild(discardButton);
+            showPreviewArea();
         },
         [MESSAGE_COMMANDS.CHANGES_APPLIED]: (message) => {
             appendMessage('System', `Changes applied to ${message.filePath}`);
         },
         [MESSAGE_COMMANDS.CHANGES_DISCARDED]: (message) => {
-            appendMessage('System', `Changes discarded for ${message.filePath}`);
+            appendMessage('System', `Action discarded for ${message.filePath}.`);
         },
         [MESSAGE_COMMANDS.ERROR]: (message) => {
             appendMessage('Error', message.text, true);
@@ -128,7 +207,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    function createMessageContentWithLinks(text) {
+    function createMessageContentWithLinks(text = "") { // Add default value for text
         const fragment = document.createDocumentFragment();
         const messageElement = document.createElement('div');
 
@@ -152,17 +231,19 @@ document.addEventListener('DOMContentLoaded', () => {
         return fragment;
     }
 
-    function appendMessage(sender, text, isError = false) {
+    function appendMessage(sender, text, isError = false, senderType = 'user') { // senderType can be 'user', 'gemini', 'system'
         const messageElement = document.createElement('div');
         messageElement.classList.add('message');
         if (isError) {
             messageElement.classList.add('error-message');
+        } else {
+            messageElement.classList.add(sender.toLowerCase()); // e.g., 'user', 'gemini', 'system'
         }
-        
+
         const senderElement = document.createElement('strong');
         senderElement.textContent = sender + ': ';
         messageElement.appendChild(senderElement);
-        
+
         const contentFragment = createMessageContentWithLinks(text);
         messageElement.appendChild(contentFragment);
 

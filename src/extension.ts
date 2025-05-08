@@ -88,17 +88,43 @@ export function activate(context: vscode.ExtensionContext) {
                                 console.log('gemini-fs: Message from webview to Gemini:', message.text);
                                 await fileService.handleChatMessage(message.text, panel.webview);
                                 return;
-                            case 'applyChanges':
-                                console.log('gemini-fs: Webview requested to apply changes');
-                                await fileService.applyChanges(message.filePath, message.newContent);
-                                panel.webview.postMessage({ command: 'changesApplied', filePath: message.filePath });
+                            // New cases for handling confirmed file operations from webview
+                            case 'confirmCreate':
+                                console.log('gemini-fs: Webview confirmed file creation for:', message.filePath);
+                                if (message.filePath && typeof message.proposedContent === 'string') {
+                                    await fileService.performConfirmedCreate(message.filePath, message.proposedContent, panel.webview);
+                                } else {
+                                    console.error('gemini-fs: Invalid payload for confirmCreate', message);
+                                    panel.webview.postMessage({ command: 'error', sender: 'system', text: 'Invalid data received for file creation.' });
+                                }
                                 return;
-                            case 'discardChanges':
-                                console.log('gemini-fs: Webview requested to discard changes');
-                                // Currently, discardChanges in the webview just clears the preview.
-                                // If there's backend state to reset for a discarded change, handle it here.
-                                panel.webview.postMessage({ command: 'changesDiscarded', filePath: message.filePath });
+                            case 'confirmWrite':
+                                console.log('gemini-fs: Webview confirmed file write for:', message.filePath);
+                                if (message.filePath && typeof message.proposedContent === 'string') {
+                                    await fileService.performConfirmedWrite(message.filePath, message.proposedContent, panel.webview);
+                                } else {
+                                    console.error('gemini-fs: Invalid payload for confirmWrite', message);
+                                    panel.webview.postMessage({ command: 'error', sender: 'system', text: 'Invalid data received for file modification.' });
+                                }
                                 return;
+                            case 'confirmDelete':
+                                console.log('gemini-fs: Webview confirmed file deletion for:', message.filePath);
+                                if (message.filePath) {
+                                    await fileService.performConfirmedDelete(message.filePath, panel.webview);
+                                } else {
+                                    console.error('gemini-fs: Invalid payload for confirmDelete', message);
+                                    panel.webview.postMessage({ command: 'error', sender: 'system', text: 'Invalid data received for file deletion.' });
+                                }
+                                return;
+                            // Case for when user discards changes from a preview in the webview
+                            case 'discardChanges': // This command might be sent by webview if user clicks "Discard"
+                                console.log('gemini-fs: Webview requested to discard changes for file preview:', message.filePath);
+                                // Inform the user in the webview that the action was cancelled.
+                                // FileService doesn't need to do anything here as no FS operation was pending for confirmation.
+                                panel.webview.postMessage({ command: 'geminiResponse', sender: 'system', text: `Changes discarded for ${message.filePath}. No action taken.` });
+                                return;
+                            default:
+                                console.warn('gemini-fs: Received unknown command from webview:', message.command);
                         }
                     },
                     undefined,
