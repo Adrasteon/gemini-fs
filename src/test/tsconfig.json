@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.json", // Inherit settings from the main tsconfig.json
+  "compilerOptions": {
+    "module": "commonjs", // VS Code tests typically run in a Node.js environment expecting CommonJS
+    "outDir": "../../out/test", // Output compiled JS tests to the 'out/test' directory
+    "rootDir": ".", // Root directory for tests is the 'src/test' folder itself
+    "lib": [
+      "ES2022" // Ensure ES2022 features are available
+    ],
+    "types": [
+      "node", // Include Node.js type definitions
+      "mocha" // Include Mocha type definitions for test syntax
+    ]
+  },
+  "include": [
+    "**/*.ts" // Compile all .ts files within the src/test directory
+  ],
+  "exclude": [
+    "node_modules" // Exclude node_modules, though typically not present here
+  ]
+}

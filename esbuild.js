@@ -1,3 +1,4 @@
+// c:\Users\marti\gemini-fs\esbuild.js
 const esbuild = require("esbuild");
 
 const production = process.argv.includes('--production');
@@ -24,7 +25,7 @@ const esbuildProblemMatcherPlugin = {
 };
 
 async function main() {
-	const ctx = await esbuild.context({
+	const extensionConfig = {
 		entryPoints: [
 			'src/extension.ts'
 		],
@@ -34,19 +35,43 @@ async function main() {
 		sourcemap: !production,
 		sourcesContent: false,
 		platform: 'node',
-		outfile: 'dist/extension.js',
+		outfile: 'out/extension.js',
 		external: ['vscode'],
 		logLevel: 'silent',
-		plugins: [
-			/* add to the end of plugins array */
-			esbuildProblemMatcherPlugin,
+		plugins: [esbuildProblemMatcherPlugin],
+	};
+
+	const webviewConfig = {
+		entryPoints: [
+			'src/webview/script.js'
 		],
-	});
+		bundle: true,
+		format: 'esm',
+		minify: production,
+		sourcemap: !production,
+		sourcesContent: false,
+		platform: 'browser',
+		outfile: 'out/webview.js',
+		logLevel: 'silent',
+		plugins: [esbuildProblemMatcherPlugin],
+	};
+
 	if (watch) {
-		await ctx.watch();
+		const extensionCtx = await esbuild.context(extensionConfig);
+		const webviewCtx = await esbuild.context(webviewConfig);
+
+		await extensionCtx.watch();
+		await webviewCtx.watch();
+
+		console.log('[watch] Watching for changes in extension and webview source files...');
+		// In watch mode, the contexts keep the process alive.
 	} else {
-		await ctx.rebuild();
-		await ctx.dispose();
+		await Promise.all([
+			esbuild.build(extensionConfig),
+			esbuild.build(webviewConfig)
+		]);
+		console.log('Build finished for extension and webview.');
+		// For non-watch mode, the script will exit after builds complete.
 	}
 }
 

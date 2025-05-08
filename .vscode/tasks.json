@@ -1,55 +1,47 @@
+// c:\Users\marti\gemini-fs\.vscode\tasks.json
 {
 	"version": "2.0.0",
 	"tasks": [
 		{
-            "label": "Watch All",
-            "dependsOn": [
-                "pnpm: watch:tsc",
-                "pnpm: watch:esbuild"
-            ],
-            "presentation": {
-                "reveal": "never"
-            },
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            }
-        },
-        {
-            "type": "shell",
-            "command": "pnpm run watch:esbuild",
-            "group": "build",
-            "problemMatcher": "$esbuild-watch",
-            "isBackground": true,
-            "label": "pnpm: watch:esbuild",
-            "presentation": {
-                "group": "watch",
-                "reveal": "never"
-            }
-        },
+			"label": "Watch All",
+			"dependsOn": [
+				"pnpm: watch:source_code" // This task will watch both extension and webview via `pnpm run watch:src`
+			],
+			"presentation": {
+				"reveal": "never"
+			},
+			"group": {
+				"kind": "build",
+				"isDefault": false // The main "Build" task is the default
+			}
+		},
 		{
-            "type": "shell",
-            "command": "pnpm run watch:tsc",
-            "group": "build",
-            "problemMatcher": "$tsc-watch",
-            "isBackground": true,
-            "label": "pnpm: watch:tsc",
-            "presentation": {
-                "group": "watch",
-                "reveal": "never"
-            }
-        },
+			"type": "shell",
+			"command": "pnpm run watch:src", // This script now watches both extension and webview source
+			"group": "build",
+			"problemMatcher": "$esbuild-watch",
+			"isBackground": true,
+			"label": "pnpm: watch:source_code",
+			"presentation": {
+				"group": "watch",
+				"reveal": "never"
+			}
+		},
 		{
 			"label": "Build",
 			"type": "shell",
-			"command": "pnpm run build",
+			"command": "pnpm run build", // This script builds both extension and webview
 			"problemMatcher": [
-				"$tsc",
+				"$tsc", 
 				"$esbuild"
 			],
-			"group": "build",
+			"group": {
+				"kind": "build",
+				"isDefault": true // This is the default build task for F5 (preLaunchTask)
+			},
 			"presentation": {
-				"reveal": "silent"
+				"reveal": "silent",
+				"clear": true
 			}
 		},
 		{
@@ -60,17 +52,17 @@
 			"isBackground": true,
 			"presentation": {
 				"reveal": "never",
-				"group": "watchers"
+				"group": "watchers" // Can be a custom group name
 			},
-			"group": "build"
+			"group": "build" // Keep in build group if it contributes to the overall build/watch process
 		},
 		{
 			"label": "Watch Extension and Tests",
 			"dependsOn": [
-				"Watch All",
+				"Watch All", // This now correctly depends on the unified source watch
 				"pnpm: watch-tests"
 			],
-			"problemMatcher": []
+			"problemMatcher": [] 
 		}
 	]
 }

@@ -3,8 +3,22 @@ const vscode = acquireVsCodeApi();
 let currentFilePath = null;
 let currentFileContent = null;
 
+// Define constants for message commands to improve maintainability and reduce typos
+const MESSAGE_COMMANDS = {
+    GET_API_KEY: 'getApiKey',
+    SEND_TO_GEMINI: 'sendToGemini',
+    API_KEY: 'apiKey',
+    GEMINI_RESPONSE: 'geminiResponse',
+    FILE_CONTENT: 'fileContent',
+    APPLY_CHANGES: 'applyChanges',
+    DISCARD_CHANGES: 'discardChanges',
+    CHANGES_APPLIED: 'changesApplied',
+    CHANGES_DISCARDED: 'changesDiscarded',
+    ERROR: 'error',
+};
+
 function requestApiKey() {
-    vscode.postMessage({ command: 'getApiKey' });
+    vscode.postMessage({ command: MESSAGE_COMMANDS.GET_API_KEY });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -14,6 +28,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const filePreview = document.getElementById('file-preview');
     const fileNameElement = document.getElementById('file-name');
 
+    // Defensive check for essential elements
+    if (!sendButton || !messageInput || !chatMessages || !filePreview || !fileNameElement) {
+        console.error('One or more essential UI elements are missing from the DOM.');
+        // Optionally, display an error message in the webview UI
+        return;
+    }
+
     // Request API key on load
     requestApiKey();
 
@@ -21,7 +42,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const message = messageInput.value;
         if (message.trim() !== '') {
             appendMessage('You', message);
-            vscode.postMessage({ command: 'sendToGemini', text: message });
+            vscode.postMessage({ command: MESSAGE_COMMANDS.SEND_TO_GEMINI, text: message }); // Removed double quotes around the object
             messageInput.value = '';
         }
     });
@@ -33,15 +54,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    window.addEventListener('message', event => {
-        const message = event.data;
-        if (message.command === 'apiKey') {
+    // --- Message Handlers ---
+    const commandHandlers = {
+        [MESSAGE_COMMANDS.API_KEY]: (message) => {
             console.log("API Key received (or not) by webview:", message.key ? "Exists" : "Not set");
-            // You might want to enable/disable UI elements based on API key presence
-        }
-        if (message.command === 'geminiResponse') {
+            // TODO: You might want to enable/disable UI elements based on API key presence
+            // For example: messageInput.disabled = !message.key; sendButton.disabled = !message.key;
+        },
+        [MESSAGE_COMMANDS.GEMINI_RESPONSE]: (message) => {
             appendMessage('Gemini', message.text);
-        } else if (message.command === 'fileContent') {
+        },
+        [MESSAGE_COMMANDS.FILE_CONTENT]: (message) => {
             currentFilePath = message.filePath;
             currentFileContent = message.content;
             fileNameElement.textContent = `File: ${message.filePath}`;
@@ -57,7 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else if (line.startsWith('-')) {
                     span.className = 'diff-removed';
                 }
-                span.textContent = line + '\n';
+                span.textContent = line + '\n'; // textContent is safer
                 codeElement.appendChild(span);
             });
 
@@ -68,7 +91,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const applyButton = document.createElement('button');
             applyButton.textContent = 'Apply Changes';
             applyButton.onclick = () => {
-                vscode.postMessage({ command: 'applyChanges', filePath: currentFilePath, newContent: message.newContent });
+                vscode.postMessage({ command: MESSAGE_COMMANDS.APPLY_CHANGES, filePath: currentFilePath, newContent: message.newContent });
                 filePreview.innerHTML = '<p>Changes applied. Ask for another change or read a new file.</p>';
                 fileNameElement.textContent = '';
             };
@@ -76,22 +99,58 @@ document.addEventListener('DOMContentLoaded', () => {
             const discardButton = document.createElement('button');
             discardButton.textContent = 'Discard Changes';
             discardButton.onclick = () => {
-                vscode.postMessage({ command: 'discardChanges', filePath: currentFilePath });
+                vscode.postMessage({ command: MESSAGE_COMMANDS.DISCARD_CHANGES, filePath: currentFilePath });
                 filePreview.innerHTML = '<p>Changes discarded. Ask for another change or read a new file.</p>';
                 fileNameElement.textContent = '';
             };
             
             filePreview.appendChild(applyButton);
             filePreview.appendChild(discardButton);
-
-        } else if (message.command === 'changesApplied') {
+        },
+        [MESSAGE_COMMANDS.CHANGES_APPLIED]: (message) => {
             appendMessage('System', `Changes applied to ${message.filePath}`);
-        } else if (message.command === 'changesDiscarded') {
+        },
+        [MESSAGE_COMMANDS.CHANGES_DISCARDED]: (message) => {
             appendMessage('System', `Changes discarded for ${message.filePath}`);
-        } else if (message.command === 'error') {
+        },
+        [MESSAGE_COMMANDS.ERROR]: (message) => {
             appendMessage('Error', message.text, true);
         }
+    };
+
+    window.addEventListener('message', event => {
+        const message = event.data;
+        const handler = commandHandlers[message.command];
+        if (handler) {
+            handler(message);
+        } else {
+            console.warn('Unknown command received from extension:', message.command, message);
+        }
     });
+
+    function createMessageContentWithLinks(text) {
+        const fragment = document.createDocumentFragment();
+        const messageElement = document.createElement('div');
+
+        // Naive link detection (http/https)
+        const urlRegex = /(\b(https?|ftp|file):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/ig;
+        let lastIndex = 0;
+        let match;
+        while ((match = urlRegex.exec(text)) !== null) {
+            // Append text before the link
+            fragment.appendChild(document.createTextNode(text.substring(lastIndex, match.index)));
+            // Create and append the link
+            const link = document.createElement('a');
+            link.href = match[0];
+            link.textContent = match[0];
+            link.target = '_blank'; // Open in new tab
+            fragment.appendChild(link);
+            lastIndex = urlRegex.lastIndex;
+        }
+        // Append remaining text after the last link (or the whole text if no links)
+        fragment.appendChild(document.createTextNode(text.substring(lastIndex)));
+        return fragment;
+    }
 
     function appendMessage(sender, text, isError = false) {
         const messageElement = document.createElement('div');
@@ -104,23 +163,8 @@ document.addEventListener('DOMContentLoaded', () => {
         senderElement.textContent = sender + ': ';
         messageElement.appendChild(senderElement);
         
-        // Naive link detection (http/https)
-        const urlRegex = /(\b(https?|ftp|file):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/ig;
-        let lastIndex = 0;
-        let match;
-        while ((match = urlRegex.exec(text)) !== null) {
-            // Append text before the link
-            messageElement.appendChild(document.createTextNode(text.substring(lastIndex, match.index)));
-            // Create and append the link
-            const link = document.createElement('a');
-            link.href = match[0];
-            link.textContent = match[0];
-            link.target = '_blank'; // Open in new tab
-            messageElement.appendChild(link);
-            lastIndex = urlRegex.lastIndex;
-        }
-        // Append remaining text after the last link (or the whole text if no links)
-        messageElement.appendChild(document.createTextNode(text.substring(lastIndex)));
+        const contentFragment = createMessageContentWithLinks(text);
+        messageElement.appendChild(contentFragment);
 
         chatMessages.appendChild(messageElement);
         chatMessages.scrollTop = chatMessages.scrollHeight; // Scroll to bottom

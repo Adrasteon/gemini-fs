@@ -1,3 +1,4 @@
+// c:\Users\marti\gemini-fs\src\webview\main.html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -38,13 +39,19 @@
 </head>
 <body>
     <div class="chat-container">
-        <div id="messages" class="messages-area" aria-live="polite" aria-atomic="false">
+        <div id="chat-messages" class="messages-area" aria-live="polite" aria-atomic="false">
             <!-- Chat messages will be appended here -->
         </div>
         <div class="input-area">
             <label for="message-input" class="visually-hidden">Chat Input</label>
             <textarea id="message-input" placeholder="Type your message or command..."></textarea>
             <button id="send-button" type="button">Send</button>
+        </div>
+        <div id="file-preview-area" class="file-preview-container" style="display: none;"> <!-- Initially hidden -->
+            <h3 id="file-name"></h3>
+            <div id="file-preview" class="file-preview-content">
+                <!-- File content or diff will be shown here -->
+            </div>
         </div>
     </div>
 

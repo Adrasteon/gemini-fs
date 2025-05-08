@@ -1,6 +1,6 @@
+// .vscodeignore
 .vscode/**
 .vscode-test/**
-out/**
 node_modules/**
 src/**
 .gitignore

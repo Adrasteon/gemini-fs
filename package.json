@@ -1,3 +1,4 @@
+
 {
   "name": "gemini-fs",
   "displayName": "Gemini FS Chat",
@@ -31,25 +32,21 @@
       "properties": {
         "geminiFS.modelName": {
           "type": "string",
-          "default": "gemini-pro",
+          "default": "gemini-1.5-flash-latest",
           "description": "The Gemini model to use for chat interactions (e.g., 'gemini-pro', 'gemini-1.5-flash')."
         }
       }
     }
   },
   "scripts": {
-    "vscode:prepublish": "pnpm run build:prod",
-    "build": "pnpm run build:extension && pnpm run build:webview",
-    "build:prod": "pnpm run build:extension:prod && pnpm run build:webview:prod",
-    "watch": "npm-run-all --parallel watch:extension watch:webview",
-    "build:extension": ".\\node_modules\\.bin\\esbuild.cmd ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
-    "build:extension:prod": ".\\node_modules\\.bin\\esbuild.cmd ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify",
-    "watch:extension": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
-    "build:webview": ".\\node_modules\\.bin\\esbuild.cmd ./src/webview/script.js --bundle --outfile=out/webview.js --format=esm --platform=browser --sourcemap",
-    "build:webview:prod": ".\node_modules\\.bin\\esbuild.cmd ./src/webview/script.js --bundle --outfile=out/webview.js --format=esm --platform=browser --minify",
-    "watch:webview": "esbuild ./src/webview/script.js --bundle --outfile=out/webview.js --format=esm --platform=browser --sourcemap --watch",
+    "vscode:prepublish": "node esbuild.js --production",
+    "build": "node esbuild.js",
+    "build:prod": "node esbuild.js --production",
+    "watch:src": "node esbuild.js --watch",
+    "watch": "npm-run-all --parallel watch:src watch-tests",
     "lint": "eslint src --ext ts",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "watch-tests": "tsc -p ./src/test/tsconfig.json --watch"
   },
   "dependencies": {
     "@google/generative-ai": "^0.11.5"
