@@ -1,3 +1,4 @@
+/*gemini-fs\src\webview\style.css*/
 /* Basic styles for the chat webview */
 
 * {
@@ -15,14 +16,14 @@ body {
     display: flex;
     flex-direction: column;
     height: 100vh; /* Full viewport height */
-    overflow: hidden; /* Prevent body scrolling */
+    overflow: hidden; /* Prevent body scrolling, inner elements will scroll */
 }
 
 .chat-container {
     display: flex;
     flex-direction: column;
-    flex-grow: 1; /* Take remaining height */
-    height: 100%;
+    flex-grow: 1; /* Take remaining height from body */
+    min-height: 0; /* Important for flex children to shrink and allow overflow */
 }
 
 .messages-area {
@@ -30,6 +31,7 @@ body {
     overflow-y: auto; /* Enables scrolling for messages */
     padding: 10px;
     border-bottom: 1px solid var(--vscode-editorWidget-border, #454545);
+    min-height: 0; /* Allow shrinking if other content pushes it, enabling its own scroll */
 }
 
 .message {
@@ -47,17 +49,27 @@ body {
     text-align: right;
 }
 
-.message.bot {
+.message.gemini, /* Assuming 'gemini' class is added by script.js for bot messages */
+.message.bot { /* Keeping .bot for backward compatibility or other uses */
     background-color: var(--vscode-list-inactiveSelectionBackground, #37373d);
     color: var(--vscode-list-inactiveSelectionForeground, #cccccc);
     margin-right: auto; /* Align bot messages to the left */
     text-align: left;
 }
 
-.message.info {
-    background-color: var(--vscode-editorWidget-background, #252526); /* Subtle background */
-    color: var(--vscode-descriptionForeground, #7f7f7f); /* Dimmer text */
-    border: 1px dashed var(--vscode-editorWidget-border, #454545); /* Dashed border for info */
+.message.system { /* For messages from the 'system' sender */
+    background-color: var(--vscode-notifications-background, #333333); /* Example system message style */
+    color: var(--vscode-notifications-foreground, #cccccc);
+    border: 1px dashed var(--vscode-editorWidget-border, #454545);
+    margin-right: auto;
+    text-align: left;
+    font-style: italic;
+}
+
+.message.info { /* Retaining if used, though 'system' might cover this now */
+    background-color: var(--vscode-editorWidget-background, #252526);
+    color: var(--vscode-descriptionForeground, #7f7f7f);
+    border: 1px dashed var(--vscode-editorWidget-border, #454545);
     margin-right: auto;
     text-align: left;
 }
@@ -70,16 +82,16 @@ body {
     text-align: left;
 }
 
-.message.confirmation {
-    background-color: var(--vscode-peekViewResult-selectionBackground, rgba(58, 67, 81, 0.7)); /* Use a distinct background */
+.message.confirmation { /* This class might be for the container in file-preview, or specific messages */
+    background-color: var(--vscode-peekViewResult-selectionBackground, rgba(58, 67, 81, 0.7));
     color: var(--vscode-peekViewResult-selectionForeground, #ffffff);
     border: 1px solid var(--vscode-peekViewTitle-background, #1e1e1e);
     margin-right: auto;
     text-align: left;
 }
 
-.message.confirmation button {
-    margin-left: 10px; /* Space between text and buttons, and between buttons */
+.message.confirmation button { /* If buttons are directly inside a .message.confirmation */
+    margin-left: 10px;
     padding: 4px 8px;
     cursor: pointer;
     border: 1px solid var(--vscode-button-border, transparent);
@@ -91,19 +103,21 @@ body {
 .input-area {
     display: flex;
     padding: 10px;
-    background-color: var(--vscode-sideBar-background, #252526); /* Match sidebar bg */
+    background-color: var(--vscode-sideBar-background, #252526);
+    flex-shrink: 0; /* Prevent input area from shrinking */
 }
 
 textarea#message-input {
     flex-grow: 1;
-    resize: none; /* Prevent manual resizing */
+    resize: none;
     padding: 8px;
     border: 1px solid var(--vscode-input-border, #3c3c3c);
     background-color: var(--vscode-input-background, #3c3c3c);
     color: var(--vscode-input-foreground, #cccccc);
     margin-right: 5px;
-    min-height: 40px; /* Minimum height */
-    max-height: 150px; /* Maximum height before scrolling */
+    border-radius: 22px; /* Added for rounded ends */
+    min-height: 40px;
+    max-height: 150px;
     font-family: inherit;
     font-size: inherit;
 }
@@ -115,11 +129,94 @@ button#send-button {
     border: none;
     border-radius: 3px;
     cursor: pointer;
-    align-self: flex-end; /* Align button to bottom of input area */
-    transition: background-color 0.2s ease; /* Smooth hover transition */
+    align-self: flex-end;
+    transition: background-color 0.2s ease;
 }
 
 button#send-button:hover {
     background-color: var(--vscode-button-hoverBackground, #1177bb);
 }
 
+/* Styles for the file preview area */
+.file-preview-container {
+    padding: 10px;
+    border-top: 1px solid var(--vscode-editorWidget-border, #454545);
+    background-color: var(--vscode-editor-background);
+    flex-shrink: 0; /* Prevent preview area from shrinking if chat content is small */
+    max-height: 40vh; /* Limit its max height, adjust as needed */
+    overflow-y: auto; /* Allow preview container itself to scroll if its inner content overflows this max-height */
+    display: flex;
+    flex-direction: column;
+}
+
+.file-preview-container.hidden { /* From main.html refactor */
+    display: none !important;
+}
+
+.file-preview-container h3#file-preview-heading { /* Targeting the specific h3 from main.html */
+    margin-top: 0;
+    margin-bottom: 8px;
+    font-size: var(--vscode-font-size);
+    color: var(--vscode-editor-foreground);
+}
+
+.file-name-display { /* From main.html refactor */
+    font-weight: bold;
+    margin-bottom: 8px;
+    color: var(--vscode-textLink-foreground, #3794FF); /* Example: make it look like a link */
+}
+
+.file-preview-content {
+    flex-grow: 1; /* Allow content area within preview to take space */
+    min-height: 0; /* Allow it to shrink and enable its own scroll */
+    overflow-y: auto; /* If content inside preview (like a code block) is very long */
+    background-color: var(--vscode-editorWidget-background, #252526);
+    padding: 8px;
+    border-radius: 3px;
+    font-family: var(--vscode-editor-font-family, monospace); /* Monospace for code */
+}
+
+.file-preview-content pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.file-preview-content button {
+    margin-top: 10px;
+    margin-right: 8px;
+    padding: 6px 12px;
+    cursor: pointer;
+    border: 1px solid var(--vscode-button-border, transparent);
+    border-radius: 3px;
+    background-color: var(--vscode-button-background, #0e639c);
+    color: var(--vscode-button-foreground, #ffffff);
+}
+
+.file-preview-content button:hover {
+    background-color: var(--vscode-button-hoverBackground, #1177bb);
+}
+
+.file-preview-content button.delete-button {
+    background-color: var(--vscode-errorForeground, #F48771); /* More prominent for delete */
+}
+.file-preview-content button.delete-button:hover {
+    background-color: var(--vscode-inputValidation-errorBorder, #be1100);
+}
+
+.file-preview-content p.warning-message { /* For confirm delete prompt */
+    color: var(--vscode-errorForeground, #F48771);
+    font-weight: bold;
+}
+
+/* Rudimentary styles for diff in preview (if script.js adds these classes) */
+.diff-added {
+    color: var(--vscode-gitDecoration-addedResourceForeground, #81B88B);
+    background-color: rgba(129, 184, 139, 0.1);
+}
+
+.diff-removed {
+    color: var(--vscode-gitDecoration-deletedResourceForeground, #C74E39);
+    background-color: rgba(199, 78, 57, 0.1);
+    text-decoration: line-through;
+}

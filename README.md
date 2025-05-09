@@ -21,7 +21,7 @@ Gemini FS Chat is a VS Code extension that allows you to interact with the Googl
 ## Requirements
 
 *   VS Code version 1.85.0 or higher.
-*   A Google AI Studio API key. You can obtain one from [https://aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey).
+*   A Google AI Studio API key. You can obtain one from https://aistudio.google.com/app/apikey.
 
 ## Extension Settings
 
@@ -37,3 +37,7 @@ Gemini FS Chat is a VS Code extension that allows you to interact with the Googl
 
 ### 0.0.1
 Initial pre-release version. Features a basic chat interface with Gemini and supports file reading and listing. Implements a framework for file creation, modification, and deletion, including user confirmation, but UI for previews/diffs is still rudimentary.
+
+## License
+
+This project is licensed under the Apache License 2.0. See the LICENSE.md file for details.
