@@ -45,8 +45,18 @@ export class FileService {
         try {
             // Normalize the path to prevent directory traversal issues like '..'
             // and ensure it's treated as relative.
+            // path.normalize('') results in '.', so an empty relativePath effectively becomes '.'
             const normalizedPath = path.normalize(relativePath).replace(/^(\.\.(\/|\|$))+/, '');
-            if (normalizedPath === '' || normalizedPath === '.' || normalizedPath === '..') {
+
+            // Disallow an empty normalized path or a path that is solely '..' if it leads to ambiguity
+            // or an attempt to go above the root in a way not caught by the final check.
+            // A single '.' is valid and refers to the current directory (rootUri when joined).
+            if (normalizedPath === '' || (normalizedPath === '..' && rootUri.fsPath === vscode.Uri.joinPath(rootUri, '..').fsPath)) {
+                 // The second part of the condition `(normalizedPath === '..' && rootUri.fsPath === vscode.Uri.joinPath(rootUri, '..').fsPath)`
+                 // is a bit redundant as the startsWith check later handles '..' effectively.
+                 // A simpler check `if (normalizedPath === '')` might suffice if all inputs are guaranteed to be non-empty
+                 // or `.` by the calling functions. For now, keeping it slightly more restrictive.
+                 // The key change is removing `normalizedPath === '.'` from this problematic condition.
                 webview.postMessage({ command: this.WEBVIEW_COMMANDS.ERROR, sender: 'system', text: `Invalid or ambiguous path specified: ${relativePath}` });
                 return null;
             }
@@ -227,13 +237,19 @@ export class FileService {
 
         try {
             const promptForGemini = `Create the content for a new file named '${filePath}'. The file should contain: ${contentDescription}. Only output the raw file content, without any explanations or markdown formatting.`;
-            currentHistory.push({ role: "user", parts: [{ text: promptForGemini }] }); // Add this specific task to history for Gemini
-            const proposedContent = await this.geminiService.askGeminiWithHistory(currentHistory);
-            // Remove the synthetic user prompt from history after getting the content
-            currentHistory.pop(); 
+            
+            // Create a temporary history for this specific call.
+            // GeminiService.prepareChatComponents will use the last user message as the prompt.
+            const historyForThisCall = [
+                ...currentHistory, // currentHistory already contains the user's actual command, e.g., "/create ..."
+                { role: "user" as const, parts: [{ text: promptForGemini }] } // Add the synthetic prompt for Gemini
+            ];
+            
+            const proposedContent = await this.geminiService.askGeminiWithHistory(historyForThisCall);
+            
+            // Update the main conversation history with Gemini's response.
+            // The original currentHistory (from handleChatMessage) still holds the user's /create command.
             currentHistory.push({ role: "model", parts: [{ text: `Proposed content for ${filePath}:\n${proposedContent}` }] });
-
-
             // Send to webview for confirmation
             webview.postMessage({
                 command: this.WEBVIEW_COMMANDS.SHOW_FILE_PREVIEW,
