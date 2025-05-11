@@ -14,7 +14,18 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
     -   A webview preview is shown with the Gemini-generated content, allowing the user to confirm or discard the creation.
     -   Comprehensive unit tests for the `/create` command flow, including Gemini interaction and webview preview.
 -   Enhanced conversation history management for file operation commands, ensuring correct context is passed to Gemini and maintained.
+-   **Context Management Commands**:
+    -   Added `/context <filePath>` to load a specific file's content into the chat context for Gemini.
+    -   Added `/context <folderPath>` to load contents of all files directly within a folder into the chat context (non-recursive).
+    -   Added `/context list` to display files currently in context.
+    -   Added `/context clear` to remove all files from the context.
 -   Robust path normalization and security checks for file operations, including improved path comparison in mocks for cross-platform test stability.
+
+### Changed
+-   **Refactored `FileService`**:
+    -   Extracted file system command logic (e.g., `/read`, `/list`, `/create`, `/write`, `/delete`) into a new `FileOperationCommands` class (`src/fileOperationCommands.ts`).
+    -   Moved low-level file system interaction utilities (e.g., reading/writing files, path resolution) into a new `fileSystemUtils.ts` module.
+    -   `FileService` now acts more as an orchestrator, managing chat history, context, and delegating file operations. This improves modularity and maintainability.
 
 ### Fixed
 -   Resolved test failures related to conversation history inspection for the `/create` command by ensuring the test stub captures the history state at the moment of the Gemini call.

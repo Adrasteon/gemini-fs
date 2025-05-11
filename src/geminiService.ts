@@ -1,8 +1,15 @@
 // c:\Users\marti\gemini-fs\src\geminiService.ts
 import * as vscode from 'vscode';
-import { GoogleGenerativeAI, GenerativeModel, Content, BlockReason } from '@google/generative-ai';
+import { GoogleGenerativeAI, GenerativeModel, Content, BlockReason, Part } from '@google/generative-ai';
 
 const API_KEY_SECRET_ID = 'geminiApiKey';
+
+// Define and export ChatMessage type
+// This structure is compatible with the `Content` type from @google/generative-ai
+export interface ChatMessage {
+    role: 'user' | 'model' | 'system'; // 'system' can be mapped to 'user' or 'model' if needed for Gemini
+    parts: Part[]; // Re-using Part from @google/generative-ai for consistency
+}
 
 export class GeminiService {
     private context: vscode.ExtensionContext;
@@ -39,8 +46,8 @@ export class GeminiService {
             this.currentApiKey = process.env.GEMINI_API_KEY;
             if (this.currentApiKey) {
                 console.log("GeminiService: API Key loaded from environment variable.");
-                // Optionally store it in secrets for future use
-                // await this.context.secrets.store(API_KEY_SECRET_ID, this.currentApiKey);
+                // Store it in secrets for future use if found in env
+                await this.context.secrets.store(API_KEY_SECRET_ID, this.currentApiKey);
             }
         } else {
             console.log("GeminiService: API Key loaded from VS Code secrets.");
@@ -50,7 +57,7 @@ export class GeminiService {
 
     private loadModelConfiguration(): void {
         const config = vscode.workspace.getConfiguration('geminiFS');
-        const newModelName = config.get<string>('modelName', 'gemini-pro'); // Default to gemini-pro
+        const newModelName = config.get<string>('modelName', 'gemini-1.5-flash-latest'); // Default to gemini-1.5-flash-latest
         if (this.currentModelName !== newModelName) {
             this.currentModelName = newModelName;
             console.log(`GeminiService: Model name configured to ${this.currentModelName}. Re-initializing client if API key exists.`);
@@ -173,14 +180,16 @@ export class GeminiService {
         }
 
         if (response.candidates && response.candidates.length > 0 && response.candidates[0].content && response.candidates[0].content.parts.length > 0) {
-            const text = response.candidates[0].content.parts[0].text;
-            if (text === undefined || text === null) {
-                console.warn("GeminiService: Received undefined or null text from Gemini.");
-                vscode.window.showWarningMessage("Gemini API: Received an empty response.");
-                return "Gemini returned an empty response.";
+            const textPart = response.candidates[0].content.parts.find(part => 'text' in part);
+            if (textPart && 'text' in textPart && textPart.text !== undefined && textPart.text !== null) {
+                const text = textPart.text;
+                console.log("GeminiService: Successfully received response from Gemini:", `"${text.substring(0,100)}..."`);
+                return text;
+            } else {
+                console.warn("GeminiService: Received undefined, null, or non-text part from Gemini.");
+                vscode.window.showWarningMessage("Gemini API: Received an empty or non-text response part.");
+                return "Gemini returned an empty or non-text response part.";
             }
-            console.log("GeminiService: Successfully received response from Gemini:", `"${text.substring(0,100)}..."`);
-            return text;
         } else {
             console.warn("GeminiService: No candidates found in Gemini response or response was empty.");
             vscode.window.showWarningMessage("Gemini API: No response candidates found.");
@@ -189,7 +198,7 @@ export class GeminiService {
     }
 
     public async askGeminiWithHistory(
-        history: Content[]
+        history: Content[] // Note: FileService passes ChatMessage[], which is structurally compatible
     ): Promise<string> {
         try {
             console.log("GeminiService: askGeminiWithHistory called. Full history length:", history.length);

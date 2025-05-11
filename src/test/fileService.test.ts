@@ -14,7 +14,20 @@ suite('FileService Test Suite', () => {
     let fileService: FileService;
     let mockWebview: vscode.Webview;
     let workspaceFoldersStub: sinon.SinonStub; // Declare the stub in the suite scope
-    let fsMock: { [key: string]: sinon.SinonStub }; // Declare fsMock in the suite scope
+    // Declare fsMock with a more specific type matching FileSystem structure but with SinonStubs
+    let fsMock: {
+        stat: sinon.SinonStub;
+        readDirectory: sinon.SinonStub;
+        createDirectory: sinon.SinonStub;
+        readFile: sinon.SinonStub;
+        writeFile: sinon.SinonStub;
+        delete: sinon.SinonStub;
+        rename: sinon.SinonStub;
+        copy: sinon.SinonStub; // Assuming copy is required by your @types/vscode version
+        isWritableFileSystem: sinon.SinonStub; // Assuming this is required
+        // Add any other methods if the error persists and lists more
+    };
+
 
     const workspaceRootPath = '/test/workspace'; // POSIX style for consistency in definition
     const workspaceRootUri = vscode.Uri.file(workspaceRootPath);
@@ -60,12 +73,12 @@ suite('FileService Test Suite', () => {
             }),
             writeFile: sandbox.stub(),
             delete: sandbox.stub(),
-            readDirectory: sandbox.stub().callsFake((uri: vscode.Uri) => {
+            readDirectory: sandbox.stub().callsFake(async (uri: vscode.Uri) => {
                 const currentPath = path.normalize(uri.fsPath);
                 const rootFsPath = path.normalize(workspaceRootUri.fsPath); // Platform-specific root
 
                 const isWindows = process.platform === "win32";
-                const comparePaths = (p1: string, p2: string) => {
+                const comparePaths = (p1: string, p2: string): boolean => {
                     if (isWindows) {
                         return p1.toLowerCase() === p2.toLowerCase();
                     }
@@ -105,7 +118,7 @@ suite('FileService Test Suite', () => {
             copy: sandbox.stub(), 
             isWritableFileSystem: sandbox.stub(),
         };
-        sandbox.replaceGetter(vscode.workspace, 'fs', () => fsMock);
+        sandbox.replaceGetter(vscode.workspace, 'fs', () => fsMock as unknown as vscode.FileSystem);
 
         // Mock vscode.window
         sandbox.stub(vscode.window, 'showErrorMessage'); 

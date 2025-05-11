@@ -14,6 +14,11 @@ Gemini FS Chat is a VS Code extension that allows you to interact with the Googl
         *   A preview of the Gemini-generated content is shown for confirmation before the file is created. (Implemented and Tested)
     *   `/write <filePath> <description>`: Modify existing files, with Gemini proposing changes based on your instructions. (Framework in place, webview confirmation implemented, full Gemini content generation/diffing and end-to-end flow under active development).
     *   `/delete <filePath>`: Securely delete files and folders. (Framework in place, webview confirmation implemented, end-to-end flow under active development).
+*   **Context Management for Chat:**
+    *   `/context <filePath>`: Loads the content of the specified file into the chat context for subsequent Gemini queries.
+    *   `/context <folderPath>`: Loads the content of all files (non-recursively) from the specified folder into the chat context.
+    *   `/context list`: Displays the list of files currently loaded in the context.
+    *   `/context clear`: Clears all files from the chat context.
 *   **Secure Operations:** All file system interactions are carefully validated to ensure they occur within the boundaries of your open workspace and require explicit confirmation for any modifications or deletions.
 *   **(Planned) Natural Language & Accessibility Features:**
     *   **Voice Control:** Interact with Gemini and the extension using voice commands (Voice-to-Text).
@@ -59,6 +64,9 @@ Gemini FS Chat is a VS Code extension that allows you to interact with the Googl
 | `/read <filePath>`          | `/read src/extension.ts`                 | Reads the specified file and displays its content in the chat.                                                                                                      |
 | `/create <filePath> [desc]` | `/create new.txt a simple hello world`   | Asks Gemini to generate content for `new.txt` based on the description. Shows a preview. Upon confirmation, creates the file with the generated content.             |
 | `/write <filePath> <desc>`  | `/write main.js add a console log`       | (Planned) Reads `main.js`, asks Gemini to modify it based on the description. Shows a preview/diff. Upon confirmation, applies the changes.                         |
+| `/context <path>`           | `/context src/utils.ts`                  | Loads the content of `src/utils.ts` (or all files in a folder `src/utils`) into the chat context for subsequent Gemini queries.                                   |
+| `/context list`             | `/context list`                          | Displays a list of all files currently loaded in the chat context.                                                                                                    |
+| `/context clear`            | `/context clear`                         | Clears all files from the chat context.                                                                                                                               |
 | `/delete <filePath>`        | `/delete old.log`                        | (Planned) Asks for confirmation before deleting `old.log`.                                                                                                          |
 
 ### Webview Interactions
@@ -133,6 +141,35 @@ The development of Gemini FS Chat is planned in phases:
 ## Release Notes
 
 Refer to the CHANGELOG.md for detailed release notes.
+
+## Key Files and Their Evolving Roles
+
+*   **`src/extension.ts`:**
+    *   Manages extension activation, command registration, webview panel creation.
+    *   `panel.webview.onDidReceiveMessage` will handle an expanded set of commands from the webview (e.g., `executeWrite`, `executeCreate`, `executeDelete`).
+*   **`src/fileService.ts`:**
+    *   Manages the main chat interaction loop, conversation history, and context state.
+    *   Parses user commands and delegates file system-related command logic to `FileOperationCommands`.
+    *   Orchestrates interactions between `GeminiService`, `FileOperationCommands`, and the webview for previews, confirmations, and feedback.
+    *   Handles context management commands (`/context add, list, clear`).
+*   **`src/fileOperationCommands.ts`:**
+    *   Handles the specific logic for file system commands like `/read`, `/list`, `/create`, `/write`, and `/delete`.
+    *   Interacts with `fileSystemUtils.ts` for low-level file operations and path resolution.
+    *   Prepares data for webview previews and receives confirmed actions (e.g., `performConfirmedWrite`) to execute file changes.
+*   **`src/fileSystemUtils.ts`:**
+    *   Provides low-level, reusable utility functions for file system interactions (e.g., reading/writing file content using `vscode.workspace.fs`) and secure path resolution within the workspace. Used by `FileOperationCommands` and `FileService`.
+*   **`src/geminiService.ts`:**
+    *   Called by `FileService` for:
+        *   General chat.
+        *   Parsing user intent for file operations (if using the advanced NLU approach).
+        *   Generating new file content.
+        *   Suggesting modifications to existing file content.
+*   **`src/webview/main.html`:**
+    *   Will require new sections or dynamic elements for displaying file previews, diffs (if not using native VS Code diff), and various confirmation buttons/dialogs.
+*   **`src/webview/script.js`:**
+    *   Will need new `MESSAGE_COMMANDS` for the expanded interactions.
+    *   New `commandHandlers` to display previews, confirmation prompts, and manage associated UI elements (buttons, text areas for content).
+    *   Logic in button event listeners to `vscode.postMessage` user decisions (apply, discard, create, delete) back to the extension.
 
 ## License
 

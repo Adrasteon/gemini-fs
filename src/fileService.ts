@@ -1,446 +1,322 @@
 // c:\Users\marti\gemini-fs\src\fileService.ts
 import * as vscode from 'vscode';
-import * as os from 'os';
 import * as path from 'path';
-import { GeminiService } from './geminiService'; // Import GeminiService
-import { Content } from '@google/generative-ai'; // Import Content type
+import { GeminiService, ChatMessage } from './geminiService';
+import { FileOperationCommands } from './fileOperationCommands';
+import { readFileContentUtil, resolvePathUtil } from './fileSystemUtils'; // Only utils still directly used by FileService
 
-/**
- * Service class for handling file system operations within the VS Code workspace.
- */
+// Constants for file size limits
+const MAX_FILE_SIZE_FOR_CONTEXT = 500 * 1024; // 500KB limit per file for context
+
+
+export interface FileServiceOptions {
+    geminiService: GeminiService;
+}
+
 export class FileService {
-    private context: vscode.ExtensionContext;
     private geminiService: GeminiService;
-    private conversationHistory: Map<string, Content[]> = new Map();
+    private currentWorkspaceRoot: vscode.Uri | undefined;
+    private currentHistory: ChatMessage[] = [];
+    private contextualContent: { path: string, content: string }[] = [];
+    private fileOpCommands: FileOperationCommands;
 
-    // Define constants for webview commands to ensure consistency
-    private readonly WEBVIEW_COMMANDS = {
-        SHOW_FILE_PREVIEW: 'showFilePreview', // For write/create previews
-        CONFIRM_DELETE: 'confirmDelete',      // For delete confirmation
-        GEMINI_RESPONSE: 'geminiResponse',    // For regular AI or system messages
-        ERROR: 'error'                        // For error messages
-    };
+    constructor(options: FileServiceOptions) {
+        this.geminiService = options.geminiService;
+        this.updateWorkspaceRoot();
+        vscode.workspace.onDidChangeWorkspaceFolders(() => this.updateWorkspaceRoot());
 
-    constructor(context: vscode.ExtensionContext, geminiService: GeminiService) {
-        this.context = context;
-        this.geminiService = geminiService;
-        console.log("FileService instantiated with context and geminiService.");
+        this.fileOpCommands = new FileOperationCommands(
+            () => this.currentWorkspaceRoot,
+            (webview, message, historyToUpdate) => this.showSystemMessage(webview, message, historyToUpdate),
+            this.currentHistory, // Pass the array reference
+            this.geminiService,
+            () => this.contextualContent
+        );
+        console.log("FileService: FileOperationCommands instantiated.");
     }
 
-    /**
-     * Resolves a relative path against the workspace root and performs security checks.
-     * @param relativePath The relative path from user input.
-     * @param webview The webview to post error messages to.
-     * @returns A vscode.Uri if the path is valid and within the workspace, otherwise null.
-     */
-    private async secureResolvePath(relativePath: string, webview: vscode.Webview): Promise<vscode.Uri | null> {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.ERROR, sender: 'system', text: 'No workspace folder is open. Cannot resolve path.' });
-            return null;
+    private updateWorkspaceRoot() {
+        this.currentWorkspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+    }
+
+    public resetConversationHistory() {
+        this.currentHistory = [];
+    }
+
+    public getCurrentHistory(): ReadonlyArray<ChatMessage> {
+        return [...this.currentHistory];
+    }
+
+    private showSystemMessage(webview: vscode.Webview, message: string, historyToUpdate?: ChatMessage[]) {
+        const systemMessageText = `System: ${message}`;
+        const systemChatMessage: ChatMessage = { role: 'model', parts: [{ text: systemMessageText }] }; // Using 'model' role for system messages for simplicity
+        if (historyToUpdate) {
+            historyToUpdate.push(systemChatMessage);
         }
-        const rootUri = workspaceFolder.uri;
-        let targetUri: vscode.Uri;
+        // Send to webview with the raw message, webview can prefix "System:" if needed or display differently
+        webview.postMessage({ command: 'systemMessage', text: message, history: historyToUpdate ? [...historyToUpdate] : undefined });
+    }
 
-        try {
-            // Normalize the path to prevent directory traversal issues like '..'
-            // and ensure it's treated as relative.
-            // path.normalize('') results in '.', so an empty relativePath effectively becomes '.'
-            const normalizedPath = path.normalize(relativePath).replace(/^(\.\.(\/|\|$))+/, '');
 
-            // Disallow an empty normalized path or a path that is solely '..' if it leads to ambiguity
-            // or an attempt to go above the root in a way not caught by the final check.
-            // A single '.' is valid and refers to the current directory (rootUri when joined).
-            if (normalizedPath === '' || (normalizedPath === '..' && rootUri.fsPath === vscode.Uri.joinPath(rootUri, '..').fsPath)) {
-                 // The second part of the condition `(normalizedPath === '..' && rootUri.fsPath === vscode.Uri.joinPath(rootUri, '..').fsPath)`
-                 // is a bit redundant as the startsWith check later handles '..' effectively.
-                 // A simpler check `if (normalizedPath === '')` might suffice if all inputs are guaranteed to be non-empty
-                 // or `.` by the calling functions. For now, keeping it slightly more restrictive.
-                 // The key change is removing `normalizedPath === '.'` from this problematic condition.
-                webview.postMessage({ command: this.WEBVIEW_COMMANDS.ERROR, sender: 'system', text: `Invalid or ambiguous path specified: ${relativePath}` });
-                return null;
+    public async handleChatMessage(messageText: string, webview: vscode.Webview, apiKey: string, modelToUse: string, payload?: any) {
+        if (!this.ensureWorkspaceOpen(webview)) {
+            return;
+        }
+
+        // Add user's raw message to history first, unless it's a payload-only command
+        if (!payload && messageText) {
+             // Check if the exact same message is already the last one from the user (e.g. resend)
+            const lastMessage = this.currentHistory.length > 0 ? this.currentHistory[this.currentHistory.length - 1] : null;
+            if (!(lastMessage && lastMessage.role === 'user' && lastMessage.parts[0].text === messageText)) {
+                this.currentHistory.push({ role: 'user', parts: [{ text: messageText }] });
             }
-            targetUri = vscode.Uri.joinPath(rootUri, normalizedPath);
-        } catch (e) {
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.ERROR, sender: 'system', text: `Invalid path format: ${relativePath}. ${e instanceof Error ? e.message : String(e)}` });
-            return null;
         }
 
-        if (!targetUri.fsPath.startsWith(rootUri.fsPath)) {
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.ERROR, sender: 'system', text: `Access denied: Path '${relativePath}' is outside the workspace.` });
-            return null;
+
+        if (payload?.command === 'confirmCreateFile') {
+            await this.fileOpCommands.performConfirmedCreate(payload.filePath, payload.content, webview);
+            return;
         }
-        return targetUri;
-    }
+        if (payload?.command === 'confirmWriteFile') {
+            await this.fileOpCommands.performConfirmedWrite(payload.filePath, payload.newContent, webview);
+            return;
+        }
+        if (payload?.command === 'confirmDeleteFile') {
+            await this.fileOpCommands.performConfirmedDelete(payload.filePath, webview, this.contextualContent);
+            return;
+        }
 
 
-    /**
-     * Reads the content of a file specified by its URI.
-     * @param fileUri The URI of the file to read.
-     * @returns The content of the file as a string.
-     * @throws An error if the file cannot be read or other unexpected errors occur.
-     */
-    public async readFile(fileUri: vscode.Uri): Promise<string> {
-        try {
-            const readData = await vscode.workspace.fs.readFile(fileUri);
-            const fileContent = Buffer.from(readData).toString('utf8');
-            return fileContent;
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error(`Error reading file ${fileUri.fsPath}:`, error);
-
-            if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
-                vscode.window.showWarningMessage(`File not found: ${fileUri.fsPath}`);
+        if (messageText.startsWith('/read ')) {
+            await this.fileOpCommands.handleReadCommand(messageText, webview);
+        } else if (messageText.startsWith('/list')) {
+            await this.fileOpCommands.handleListCommand(messageText, webview);
+        } else if (messageText.startsWith('/write ')) {
+            await this.fileOpCommands.handleWriteCommand(messageText, webview, apiKey, modelToUse);
+        } else if (messageText.startsWith('/delete ')) {
+            await this.fileOpCommands.handleDeleteCommand(messageText, webview);
+        } else if (messageText.startsWith('/create ')) {
+            await this.fileOpCommands.handleCreateCommand(messageText, webview, apiKey, modelToUse);
+        } else if (messageText.startsWith('/context ')) {
+            const argument = messageText.substring('/context '.length).trim();
+            if (argument.toLowerCase() === 'clear') {
+                await this.clearContext(webview);
+            } else if (argument.toLowerCase() === 'list') {
+                await this.listContext(webview);
+            } else if (argument) {
+                await this.addPathToContext(argument, webview);
             } else {
-                vscode.window.showErrorMessage(`Failed to read file: ${fileUri.fsPath}. ${errorMessage}`);
+                this.showSystemMessage(webview, "Usage: /context <filePath|folderPath> | list | clear", this.currentHistory);
             }
-            throw error;
-        }
-    }
-
-    /**
-     * Writes content to a file specified by its URI. Creates the file if it doesn't exist.
-     * @param fileUri The URI of the file to write to.
-     * @param content The content to write to the file.
-     * @param options Optional configuration for writing.
-     * @param options.showUserMessages Control whether user-facing messages are shown on success/error (defaults to true).
-     * @throws An error if the file cannot be written.
-     */
-    public async writeFile(
-        fileUri: vscode.Uri,
-        content: string,
-        options: { showUserMessages?: boolean } = { showUserMessages: true }
-    ): Promise<void> {
-        try {
-            const writeData = Buffer.from(content, 'utf8');
-            await vscode.workspace.fs.writeFile(fileUri, writeData);
-            if (options.showUserMessages) {
-                // User messages for write success are better handled by the calling function
-                // to provide more context (e.g., "File created", "Changes applied")
-                // console.log(`Successfully wrote to ${fileUri.fsPath}`);
-            }
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error(`Error writing file ${fileUri.fsPath}:`, error);
-            if (options.showUserMessages) {
-                vscode.window.showErrorMessage(`Failed to write file: ${fileUri.fsPath}. ${errorMessage}`);
-            }
-            throw error;
-        }
-    }
-
-    private async createTemporaryFile(content: string, prefix: string = 'gemini-diff-'): Promise<vscode.Uri> {
-        const tempDir = os.tmpdir();
-        const tempFileName = `${prefix}${Date.now()}-${Math.random().toString(36).substring(2, 8)}.tmp`;
-        const tempFilePath = path.join(tempDir, tempFileName);
-        const tempFileUri = vscode.Uri.file(tempFilePath);
-        await this.writeFile(tempFileUri, content, { showUserMessages: false });
-        return tempFileUri;
-    }
-
-    public async showDiff(originalFileUri: vscode.Uri, proposedContent: string, title?: string): Promise<void> {
-        try {
-            const proposedTempUri = await this.createTemporaryFile(proposedContent, `proposed-${path.basename(originalFileUri.fsPath)}-`);
-            const diffTitle = title || `Diff: ${path.basename(originalFileUri.fsPath)}`;
-            await vscode.commands.executeCommand('vscode.diff', originalFileUri, proposedTempUri, diffTitle);
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error(`Error showing diff for ${originalFileUri.fsPath}:`, error);
-            vscode.window.showErrorMessage(`Failed to show diff: ${errorMessage}`);
-        }
-    }
-
-    // --- Command Handlers ---
-
-    private async handleReadCommand(args: string, webview: vscode.Webview, currentHistory: Content[]): Promise<void> {
-        const filePath = args.trim();
-        if (!filePath) {
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.ERROR, sender: 'system', text: "Please specify a file path after /read (e.g., /read src/extension.ts)." });
-            currentHistory.push({ role: "model", parts: [{ text: "Error: User did not specify a file path for /read." }] });
-            return;
-        }
-
-        const fileUri = await this.secureResolvePath(filePath, webview);
-        if (!fileUri) return; // secureResolvePath already sent an error message
-
-        try {
-            const fileContent = await this.readFile(fileUri);
-            const responseText = `Content of ${filePath}:\n\`\`\`\n${fileContent.substring(0, 1000)}\n\`\`\`${fileContent.length > 1000 ? '\n... (file truncated)' : ''}`;
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.GEMINI_RESPONSE, sender: 'system', text: responseText });
-            currentHistory.push({ role: "model", parts: [{ text: `Successfully read and displayed content of ${filePath}. The content started with: ${fileContent.substring(0, 200)}...` }] });
-        } catch (readError) {
-            const errorMsg = `Failed to read file ${filePath}: ${readError instanceof Error ? readError.message : String(readError)}`;
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.ERROR, sender: 'system', text: errorMsg });
-            currentHistory.push({ role: "model", parts: [{ text: `Error: Failed to read file ${filePath}. Details: ${errorMsg}` }] });
-        }
-    }
-
-    private async handleListCommand(args: string, webview: vscode.Webview, currentHistory: Content[]): Promise<void> {
-        const dirPath = args.trim() || '.'; // Default to workspace root if no path is given
-        const dirUri = await this.secureResolvePath(dirPath, webview);
-        if (!dirUri) return;
-
-        try {
-            const entries = await vscode.workspace.fs.readDirectory(dirUri);
-            let files = [];
-            let directories = [];
-            for (const [name, type] of entries) {
-                if (type === vscode.FileType.File) {
-                    files.push(name);
-                } else if (type === vscode.FileType.Directory) {
-                    directories.push(name + '/'); // Add trailing slash for directories
-                }
-            }
-            let responseText = `Contents of ${dirPath}:\n`;
-            if (directories.length > 0) {
-                responseText += `Directories:\n${directories.map(d => `- ${d}`).join('\n')}\n`;
-            }
-            if (files.length > 0) {
-                responseText += `Files:\n${files.map(f => `- ${f}`).join('\n')}\n`;
-            }
-            if (files.length === 0 && directories.length === 0) {
-                responseText += "(empty directory)";
-            }
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.GEMINI_RESPONSE, sender: 'system', text: responseText });
-            currentHistory.push({ role: "model", parts: [{ text: `Listed contents of directory: ${dirPath}` }] });
-        } catch (listError) {
-            const errorMsg = `Failed to list directory ${dirPath}: ${listError instanceof Error ? listError.message : String(listError)}`;
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.ERROR, sender: 'system', text: errorMsg });
-            currentHistory.push({ role: "model", parts: [{ text: `Error: Failed to list directory ${dirPath}. Details: ${errorMsg}` }] });
-        }
-    }
-
-    private async handleCreateCommand(args: string, webview: vscode.Webview, currentHistory: Content[]): Promise<void> {
-        const parts = args.match(/^(\S+)\s*(.*)$/s); // Path and optional content description
-        if (!parts || !parts[1]) {
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.ERROR, sender: 'system', text: "Usage: /create <filePath> [description of content for Gemini to generate]" });
-            currentHistory.push({ role: "model", parts: [{ text: "Error: Invalid /create command." }] });
-            return;
-        }
-        const filePath = parts[1];
-        const contentDescription = parts[2] || "an empty file";
-
-        const fileUri = await this.secureResolvePath(filePath, webview);
-        if (!fileUri) return;
-
-        // Check if file already exists
-        try {
-            await vscode.workspace.fs.stat(fileUri);
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.ERROR, sender: 'system', text: `File already exists: ${filePath}. Use /write to modify.` });
-            currentHistory.push({ role: "model", parts: [{ text: `Error: Attempted to create existing file ${filePath}.` }] });
-            return;
-        } catch (e) {
-            // File does not exist, which is good for /create
-        }
-
-        webview.postMessage({ command: this.WEBVIEW_COMMANDS.GEMINI_RESPONSE, sender: 'system', text: `Okay, I will try to create '${filePath}' with content described as: '${contentDescription}'. I'll ask Gemini to generate the content and then show you a preview.` });
-
-        try {
-            const promptForGemini = `Create the content for a new file named '${filePath}'. The file should contain: ${contentDescription}. Only output the raw file content, without any explanations or markdown formatting.`;
-            
-            // Create a temporary history for this specific call.
-            // GeminiService.prepareChatComponents will use the last user message as the prompt.
-            const historyForThisCall = [
-                ...currentHistory, // currentHistory already contains the user's actual command, e.g., "/create ..."
-                { role: "user" as const, parts: [{ text: promptForGemini }] } // Add the synthetic prompt for Gemini
-            ];
-            
-            const proposedContent = await this.geminiService.askGeminiWithHistory(historyForThisCall);
-            
-            // Update the main conversation history with Gemini's response.
-            // The original currentHistory (from handleChatMessage) still holds the user's /create command.
-            currentHistory.push({ role: "model", parts: [{ text: `Proposed content for ${filePath}:\n${proposedContent}` }] });
-            // Send to webview for confirmation
-            webview.postMessage({
-                command: this.WEBVIEW_COMMANDS.SHOW_FILE_PREVIEW,
-                action: 'create', // Differentiates from 'write' action in webview
-                filePath: filePath, // Relative path for display and message back
-                proposedContent: proposedContent,
-                message: `Gemini proposes creating '${filePath}' with the following content. Review and confirm.`
-            });
-        } catch (geminiError) {
-            const errorMsg = `Error asking Gemini to generate content for ${filePath}: ${geminiError instanceof Error ? geminiError.message : String(geminiError)}`;
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.ERROR, sender: 'system', text: errorMsg });
-            currentHistory.push({ role: "model", parts: [{ text: `Error: ${errorMsg}` }] });
-        }
-    }
-
-    private async handleWriteCommand(args: string, webview: vscode.Webview, currentHistory: Content[]): Promise<void> {
-        const parts = args.match(/^(\S+)\s*(.*)$/s); // Path and instruction for modification
-        if (!parts || !parts[1] || !parts[2]) {
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.ERROR, sender: 'system', text: "Usage: /write <filePath> <description of changes for Gemini>" });
-            currentHistory.push({ role: "model", parts: [{ text: "Error: Invalid /write command." }] });
-            return;
-        }
-        const filePath = parts[1];
-        const changeDescription = parts[2];
-
-        const fileUri = await this.secureResolvePath(filePath, webview);
-        if (!fileUri) return;
-
-        let originalContent = "";
-        try {
-            originalContent = await this.readFile(fileUri);
-        } catch (e) {
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.ERROR, sender: 'system', text: `File not found or could not be read: ${filePath}. Cannot apply changes.` });
-            currentHistory.push({ role: "model", parts: [{ text: `Error: File ${filePath} not found for /write.` }] });
-            return;
-        }
-
-        webview.postMessage({ command: this.WEBVIEW_COMMANDS.GEMINI_RESPONSE, sender: 'system', text: `Okay, I will try to modify '${filePath}' based on: '${changeDescription}'. I'll ask Gemini for the new content and then show you a preview/diff.` });
-
-        try {
-            const promptForGemini = `The current content of the file '${filePath}' is:\n\`\`\`\n${originalContent}\n\`\`\`\n\nPlease modify this content based on the following instruction: "${changeDescription}". Only output the complete new raw file content, without any explanations or markdown formatting.`;
-            currentHistory.push({ role: "user", parts: [{ text: promptForGemini }] });
-            const proposedContent = await this.geminiService.askGeminiWithHistory(currentHistory);
-            currentHistory.pop(); // Remove the synthetic user prompt
-            currentHistory.push({ role: "model", parts: [{ text: `Proposed new content for ${filePath}:\n${proposedContent}` }] });
-
-            // Send to webview for confirmation (could also use vscode.diff here)
-            webview.postMessage({
-                command: this.WEBVIEW_COMMANDS.SHOW_FILE_PREVIEW,
-                action: 'write',
-                filePath: filePath, // Relative path
-                originalContent: originalContent, // For webview-side diff if implemented
-                proposedContent: proposedContent,
-                message: `Gemini proposes modifying '${filePath}'. Review the changes and confirm.`
-            });
-             // Optionally, also trigger vscode.diff
-            // this.showDiff(fileUri, proposedContent, `Proposed changes for ${filePath}`);
-
-        } catch (geminiError) {
-            const errorMsg = `Error asking Gemini to modify content for ${filePath}: ${geminiError instanceof Error ? geminiError.message : String(geminiError)}`;
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.ERROR, sender: 'system', text: errorMsg });
-            currentHistory.push({ role: "model", parts: [{ text: `Error: ${errorMsg}` }] });
-        }
-    }
-
-    private async handleDeleteCommand(args: string, webview: vscode.Webview, currentHistory: Content[]): Promise<void> {
-        const filePath = args.trim();
-        if (!filePath) {
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.ERROR, sender: 'system', text: "Please specify a file path after /delete." });
-            currentHistory.push({ role: "model", parts: [{ text: "Error: Missing file path for /delete." }] });
-            return;
-        }
-
-        const fileUri = await this.secureResolvePath(filePath, webview);
-        if (!fileUri) return;
-
-        // Send to webview for explicit confirmation
-        webview.postMessage({
-            command: this.WEBVIEW_COMMANDS.CONFIRM_DELETE,
-            filePath: filePath, // Relative path
-            message: `Are you absolutely sure you want to delete '${filePath}'? This action cannot be easily undone.`
-        });
-        currentHistory.push({ role: "model", parts: [{ text: `User asked to delete ${filePath}. Awaiting confirmation.` }] });
-    }
-
-    private async handleGeneralQuery(messageText: string, webview: vscode.Webview, currentHistory: Content[]): Promise<void> {
-        console.log("FileService: Attempting to process general query with Gemini.");
-        try {
-            const aiResponseText = await this.geminiService.askGeminiWithHistory(currentHistory);
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.GEMINI_RESPONSE, sender: 'gemini', text: aiResponseText });
-            currentHistory.push({ role: "model", parts: [{ text: aiResponseText }] });
-        } catch (geminiError) {
-            const errorMsg = `Gemini API Error: ${geminiError instanceof Error ? geminiError.message : String(geminiError)}`;
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.ERROR, sender: 'system', text: errorMsg });
-            currentHistory.push({ role: "model", parts: [{ text: `System Error during general query: ${errorMsg}` }] });
-        }
-    }
-
-
-    public async handleChatMessage(messageText: string, webview: vscode.Webview): Promise<void> {
-        console.log(`FileService.handleChatMessage received: "${messageText}"`);
-        const historyKey = 'globalChat'; // Or a panel-specific key if you have multiple panels
-        let currentHistory = this.conversationHistory.get(historyKey) || [];
-
-        // Add user's message to history BEFORE any processing
-        currentHistory.push({ role: "user", parts: [{ text: messageText }] });
-
-        try {
-            const lowerMessage = messageText.toLowerCase();
-            if (lowerMessage.startsWith('/read ')) {
-                await this.handleReadCommand(messageText.substring(5), webview, currentHistory);
-            } else if (lowerMessage.startsWith('/list')) { // Allow /list or /list <path>
-                await this.handleListCommand(messageText.substring(lowerMessage.startsWith('/list ') ? 6 : 5), webview, currentHistory);
-            } else if (lowerMessage.startsWith('/create ')) {
-                await this.handleCreateCommand(messageText.substring(8), webview, currentHistory);
-            } else if (lowerMessage.startsWith('/write ')) {
-                await this.handleWriteCommand(messageText.substring(7), webview, currentHistory);
-            } else if (lowerMessage.startsWith('/delete ')) {
-                await this.handleDeleteCommand(messageText.substring(8), webview, currentHistory);
-            } else {
-                await this.handleGeneralQuery(messageText, webview, currentHistory);
-            }
-        } catch (error) {
-            const unexpectedErrorMsg = `An unexpected error occurred while handling your command: ${error instanceof Error ? error.message : String(error)}`;
-            console.error("FileService: Unexpected error in handleChatMessage:", error);
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.ERROR, sender: 'system', text: unexpectedErrorMsg });
-            currentHistory.push({ role: "model", parts: [{ text: `System Error: ${unexpectedErrorMsg}` }] });
-        } finally {
-            this.conversationHistory.set(historyKey, currentHistory);
-            console.log("FileService: Updated conversation history. New length:", currentHistory.length);
-        }
-    }
-
-    // --- Methods called from extension.ts based on webview messages ---
-
-    public async performConfirmedCreate(filePath: string, content: string, webview: vscode.Webview): Promise<void> {
-        const fileUri = await this.secureResolvePath(filePath, webview);
-        if (!fileUri) return;
-
-        try {
-            // Double check it doesn't exist (though create command should have checked)
-            try {
-                await vscode.workspace.fs.stat(fileUri);
-                webview.postMessage({ command: this.WEBVIEW_COMMANDS.ERROR, sender: 'system', text: `File already exists: ${filePath}. Creation aborted.` });
+            // After context operations, update webview with potentially changed history
+            webview.postMessage({ command: 'historyUpdate', history: [...this.currentHistory] });
+            return; // Command handled, no need to send to Gemini directly
+        } else { // General message to Gemini
+            if (!apiKey) {
+                this.showSystemMessage(webview, "API key not set. Please set it in the extension settings.", this.currentHistory);
+                webview.postMessage({ command: 'geminiResponse', sender: 'system', text: "API key not set.", history: [...this.currentHistory], isError: true });
                 return;
-            } catch (e) { /* Expected: file does not exist */ }
+            }
+            if (!modelToUse) {
+                this.showSystemMessage(webview, "Gemini model not set. Please check extension settings.", this.currentHistory);
+                webview.postMessage({ command: 'geminiResponse', sender: 'system', text: "Gemini model not set.", history: [...this.currentHistory], isError: true });
+                return;
+            }
 
-            await this.writeFile(fileUri, content, { showUserMessages: false });
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.GEMINI_RESPONSE, sender: 'system', text: `Successfully created file: ${filePath}` });
-            // Optionally, open the file: vscode.window.showTextDocument(fileUri);
-        } catch (error) {
-            const errorMsg = `Failed to create file ${filePath}: ${error instanceof Error ? error.message : String(error)}`;
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.ERROR, sender: 'system', text: errorMsg });
+            // The user message is already added to currentHistory at the beginning of this function.
+            // We need to construct the historyForGemini *before* this turn's user message for context injection.
+            let historyForGeminiPromptConstruction: ChatMessage[] = [...this.currentHistory];
+            
+            // Remove the last user message if it's the current one, to inject context before it.
+            if (historyForGeminiPromptConstruction.length > 0 &&
+                historyForGeminiPromptConstruction[historyForGeminiPromptConstruction.length - 1].role === 'user' &&
+                historyForGeminiPromptConstruction[historyForGeminiPromptConstruction.length - 1].parts[0].text === messageText) {
+                historyForGeminiPromptConstruction = historyForGeminiPromptConstruction.slice(0, -1);
+            }
+
+
+            if (this.contextualContent.length > 0) {
+                const contextPreambleMessages: ChatMessage[] = [];
+                this.contextualContent.forEach(item => {
+                    contextPreambleMessages.push({
+                        role: 'user', // Priming Gemini with context as if user provided it
+                        parts: [{ text: `IMPORTANT CONTEXT FILE: ${item.path}\nCONTENT:\n\`\`\`\n${item.content}\n\`\`\`` }]
+                    });
+                    contextPreambleMessages.push({
+                        role: 'model', // Gemini acknowledges the context
+                        parts: [{ text: `Acknowledged. The content of "${item.path}" is now part of my context for the subsequent query.` }]
+                    });
+                });
+                // Prepend context to the history that Gemini will process for this turn
+                historyForGeminiPromptConstruction.push(...contextPreambleMessages);
+            }
+
+            // Now add the actual current user message to this specially constructed history
+            historyForGeminiPromptConstruction.push({ role: 'user', parts: [{ text: messageText }] });
+
+
+            this.showSystemMessage(webview, "Gemini is thinking..."); // This system message is for UI, not for Gemini's history
+            try {                
+                // Use the historyForGeminiPromptConstruction for the API call
+                const geminiResponseText = await this.geminiService.askGeminiWithHistory(historyForGeminiPromptConstruction);
+                const geminiMessage: ChatMessage = { role: 'model', parts: [{ text: geminiResponseText }] };
+                this.currentHistory.push(geminiMessage); // Add Gemini's actual response to the persistent history
+                webview.postMessage({ command: 'geminiResponse', sender: 'gemini', text: geminiResponseText, history: [...this.currentHistory] });
+            } catch (error: any) {
+                const errorMessage = `Error calling Gemini: ${error.message || 'Unknown error'}`;
+                // Add error indication to history for user, but maybe not for Gemini's next turn unless it's a Gemini fault
+                const errorSystemMessage: ChatMessage = { role: 'model', parts: [{ text: `System: ${errorMessage}` }] };
+                this.currentHistory.push(errorSystemMessage);
+                console.error(errorMessage, error);
+                webview.postMessage({ command: 'geminiResponse', sender: 'system', text: `Error: ${error.message}`, history: [...this.currentHistory], isError: true });
+            }
         }
     }
 
-    public async performConfirmedWrite(filePath: string, newContent: string, webview: vscode.Webview): Promise<void> {
-        const fileUri = await this.secureResolvePath(filePath, webview);
-        if (!fileUri) return;
+    private ensureWorkspaceOpen(webview: vscode.Webview): boolean {
+        if (!this.currentWorkspaceRoot) {
+            this.showSystemMessage(webview, "No workspace folder is open. Please open a folder to use file system commands.", this.currentHistory);
+            return false;
+        }
+        return true;
+    }
+
+    // _resolvePath, readFileContent, writeFileContent, ensureWorkspaceOpen are now in fileSystemUtils
+    // and used by FileOperationCommands. If FileService itself needs them for other purposes (e.g. context management),
+    // it should also import them from fileSystemUtils. For addPathToContext, it does.
+
+    private async addPathToContext(rawPath: string, webview: vscode.Webview): Promise<void> {
+        if (!this.ensureWorkspaceOpen(webview)) {
+            return;
+        }
+
+        const workspaceRootUri = vscode.workspace.workspaceFolders![0].uri;
+        let targetUri: vscode.Uri;
+        let relativePath: string;
 
         try {
-            await this.writeFile(fileUri, newContent, { showUserMessages: false });
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.GEMINI_RESPONSE, sender: 'system', text: `Changes applied to: ${filePath}` });
-        } catch (error) {
-            const errorMsg = `Failed to apply changes to ${filePath}: ${error instanceof Error ? error.message : String(error)}`;
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.ERROR, sender: 'system', text: errorMsg });
+            const resolved = resolvePathUtil(rawPath, this.currentWorkspaceRoot, webview, this.showSystemMessage, this.currentHistory);
+            if (!resolved) {
+                return;
+            }
+            targetUri = resolved.uri;
+            relativePath = resolved.relativePath;
+        } catch (error: any) {
+            // _resolvePath already calls showSystemMessage, but we add to history here if it throws
+            this.showSystemMessage(webview, `Error resolving path for context: ${error.message}`, this.currentHistory);
+            return;
         }
-    }
-
-    public async performConfirmedDelete(filePath: string, webview: vscode.Webview): Promise<void> {
-        const fileUri = await this.secureResolvePath(filePath, webview);
-        if (!fileUri) return;
 
         try {
-            await vscode.workspace.fs.delete(fileUri, { useTrash: true }); // Use trash if possible
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.GEMINI_RESPONSE, sender: 'system', text: `Successfully deleted: ${filePath}` });
-        } catch (error) {
-            const errorMsg = `Failed to delete ${filePath}: ${error instanceof Error ? error.message : String(error)}`;
-            webview.postMessage({ command: this.WEBVIEW_COMMANDS.ERROR, sender: 'system', text: errorMsg });
+            const stat = await vscode.workspace.fs.stat(targetUri);
+            let filesAddedCount = 0;
+            let filesSkippedCount = 0;
+            let filesUpdatedCount = 0;
+
+            if (stat.type === vscode.FileType.File) {
+                if (stat.size > MAX_FILE_SIZE_FOR_CONTEXT) {
+                    this.showSystemMessage(webview, `File ${relativePath} is too large (${(stat.size / 1024).toFixed(2)}KB) to add to context. Max size is ${(MAX_FILE_SIZE_FOR_CONTEXT / 1024)}KB.`, this.currentHistory);
+                    filesSkippedCount++;
+                } else {
+                    const content = await readFileContentUtil(targetUri); // Use util
+                    const existingIndex = this.contextualContent.findIndex(c => c.path === relativePath);
+                    if (existingIndex !== -1) {
+                        this.contextualContent[existingIndex].content = content;
+                        this.showSystemMessage(webview, `Updated context for: ${relativePath}`, this.currentHistory);
+                        filesUpdatedCount++;
+                    } else {
+                        this.contextualContent.push({ path: relativePath, content });
+                        this.showSystemMessage(webview, `Added to context: ${relativePath}`, this.currentHistory);
+                        filesAddedCount++;
+                    }
+                }
+            } else if (stat.type === vscode.FileType.Directory) {
+                const entries = await vscode.workspace.fs.readDirectory(targetUri);
+                let dirFilesAdded = 0;
+                let dirFilesSkipped = 0;
+                let dirFilesUpdated = 0;
+
+                if (entries.length === 0) {
+                    this.showSystemMessage(webview, `Directory ${relativePath} is empty. No files added to context.`, this.currentHistory);
+                }
+
+                for (const [name, type] of entries) {
+                    if (type === vscode.FileType.File) {
+                        const fileUriInDir = vscode.Uri.joinPath(targetUri, name);
+                        // Construct relative path correctly for files in subdirectories
+                        const fileRelativePath = path.join(relativePath === '.' ? '' : relativePath, name).replace(/\\/g, '/');
+                        try {
+                            const fileStat = await vscode.workspace.fs.stat(fileUriInDir);
+                            if (fileStat.size > MAX_FILE_SIZE_FOR_CONTEXT) {
+                                this.showSystemMessage(webview, `Skipped ${fileRelativePath} (in ${relativePath}) due to size > ${MAX_FILE_SIZE_FOR_CONTEXT / 1024}KB.`, this.currentHistory);
+                                dirFilesSkipped++;
+                                continue;
+                            }
+                            const content = await readFileContentUtil(fileUriInDir); // Use util
+                            const existingIndex = this.contextualContent.findIndex(c => c.path === fileRelativePath);
+                            if (existingIndex !== -1) {
+                                this.contextualContent[existingIndex].content = content;
+                                dirFilesUpdated++;
+                            } else {
+                                this.contextualContent.push({ path: fileRelativePath, content });
+                                dirFilesAdded++;
+                            }
+                        } catch (e: any) {
+                            this.showSystemMessage(webview, `Could not read file ${fileRelativePath} in directory ${relativePath}: ${e.message}`, this.currentHistory);
+                            console.warn(`Could not read file ${fileRelativePath} in directory: ${e.message}`);
+                        }
+                    }
+                }
+                filesAddedCount += dirFilesAdded;
+                filesSkippedCount += dirFilesSkipped;
+                filesUpdatedCount += dirFilesUpdated;
+
+                let message = "";
+                if (dirFilesAdded > 0) {
+                    message += `Added ${dirFilesAdded} new file(s) from ${relativePath}. `;
+                }
+                if (dirFilesUpdated > 0) {
+                    message += `Updated ${dirFilesUpdated} existing file(s) in context from ${relativePath}. `;
+                }
+                if (dirFilesSkipped > 0) {
+                    message += `Skipped ${dirFilesSkipped} file(s) from ${relativePath} due to size. `;
+                }
+                if (message) {
+                    this.showSystemMessage(webview, message.trim(), this.currentHistory);
+                } else if (entries.length > 0 && dirFilesAdded === 0 && dirFilesUpdated === 0 && dirFilesSkipped === 0) {
+                     this.showSystemMessage(webview, `No applicable files found in directory ${relativePath} to add or update in context.`, this.currentHistory);
+                }
+
+
+            } else {
+                this.showSystemMessage(webview, `Path ${relativePath} is not a file or directory.`, this.currentHistory);
+                return;
+            }
+
+            if (filesAddedCount > 0 || filesSkippedCount > 0 || filesUpdatedCount > 0) {
+                 this.showSystemMessage(webview, `Context now contains ${this.contextualContent.length} file(s).`, this.currentHistory);
+            }
+        } catch (error: any) {
+            if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
+                this.showSystemMessage(webview, `Path not found: ${relativePath}`, this.currentHistory);
+            } else {
+                this.showSystemMessage(webview, `Error accessing path ${relativePath}: ${error.message}`, this.currentHistory);
+            }
+            console.error(`Error in addPathToContext for ${relativePath}:`, error);
         }
     }
 
-    /**
-     * This method is kept for compatibility if the webview sends a generic 'applyChanges'
-     * but should ideally be replaced by more specific command handlers like performConfirmedWrite.
-     */
-    public async applyChanges(filePath: string, newContent: string): Promise<void> {
-        console.warn(`FileService.applyChanges called directly for ${filePath}. Consider using performConfirmedWrite for better clarity.`);
-        const dummyWebview = { postMessage: (message: any) => console.log("Dummy webview received (from applyChanges):", message) } as vscode.Webview;
-        await this.performConfirmedWrite(filePath, newContent, dummyWebview);
-        // Note: This won't send feedback to the actual webview unless it's passed in.
-        // The original caller in extension.ts should handle webview feedback.
+    private async clearContext(webview: vscode.Webview): Promise<void> {
+        this.contextualContent = [];
+        this.showSystemMessage(webview, "Context has been cleared.", this.currentHistory);
+    }
+
+    private async listContext(webview: vscode.Webview): Promise<void> {
+        if (this.contextualContent.length === 0) {
+            this.showSystemMessage(webview, "Context is currently empty.", this.currentHistory);
+            return;
+        }
+        const fileList = this.contextualContent.map(c => `- ${c.path} (${(c.content.length / 1024).toFixed(2)}KB)`).join('\n');
+        this.showSystemMessage(webview, `Files currently in context:\n${fileList}\nTotal: ${this.contextualContent.length} file(s).`, this.currentHistory);
     }
 }
