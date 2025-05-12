@@ -20,21 +20,22 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
     -   Added `/context list` to display files currently in context.
     -   Added `/context clear` to remove all files from the context.
 -   Robust path normalization and security checks for file operations, including improved path comparison in mocks for cross-platform test stability.
+    -   **Enhanced `/write` command**:
+        -   Implemented a webview-based diff view to show changes between original and Gemini-proposed content.
+        -   Uses the `diff` library for generating and displaying line-by-line changes.
 
 ### Changed
 -   **Refactored `FileService`**:
     -   Extracted file system command logic (e.g., `/read`, `/list`, `/create`, `/write`, `/delete`) into a new `FileOperationCommands` class (`src/fileOperationCommands.ts`).
     -   Moved low-level file system interaction utilities (e.g., reading/writing files, path resolution) into a new `fileSystemUtils.ts` module.
     -   `FileService` now acts more as an orchestrator, managing chat history, context, and delegating file operations. This improves modularity and maintainability.
-
 ### Fixed
 -   Resolved test failures related to conversation history inspection for the `/create` command by ensuring the test stub captures the history state at the moment of the Gemini call.
 -   Corrected mock for `vscode.workspace.fs.readFile` to return `Uint8Array` as expected by `FileService`, resolving `TypeError` during file reading in tests.
 -   Improved path comparison logic in `fsMock.readDirectory` within tests to be case-insensitive on Windows, enhancing test reliability.
 
 ### Next Steps
-- Complete Gemini integration for content modification in the `/write` command.
-- Enhance webview UI for file previews/diffs, particularly for the `/write` command.
+    - Refine Gemini interaction prompts for the `/write` command for more complex modifications.
 - Expand test coverage for the `/write` and `/delete` commands, including webview interactions and end-to-end file operations.
 - Begin implementation of foundational NLF and Voice I/O (Phase 3).
 

@@ -42,11 +42,37 @@ body {
     word-wrap: break-word; /* Wrap long words */
 }
 
+.message strong { /* Style the sender part of the message */
+    font-weight: bold;
+    margin-right: 4px;
+}
+
+.message pre { /* Styles for preformatted text (code blocks) within messages */
+    background-color: var(--vscode-textBlockQuote-background, rgba(127, 127, 127, 0.1));
+    border: 1px solid var(--vscode-textBlockQuote-border, rgba(0, 0, 0, 0.1));
+    padding: 8px;
+    margin-top: 4px;
+    margin-bottom: 4px;
+    border-radius: 3px;
+    white-space: pre-wrap;       /* Since CSS 2.1 */
+    word-wrap: break-word;       /* Internet Explorer 5.5+ */
+    overflow-x: auto;          /* Add scroll for long lines of code */
+}
+
+.message pre code { /* Styles for code within preformatted text */
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: var(--vscode-editor-font-size, 1em); /* Match editor font size or slightly smaller */
+    background-color: transparent; /* Code tag itself shouldn't have a background if pre has one */
+    padding: 0; /* Reset padding if any default exists */
+    border: none; /* Reset border if any default exists */
+}
+
+
 .message.user {
     background-color: var(--vscode-list-activeSelectionBackground, #094771);
     color: var(--vscode-list-activeSelectionForeground, #ffffff);
     margin-left: auto; /* Align user messages to the right */
-    text-align: right;
+    text-align: left; /* Keep text left-aligned within the right-aligned bubble */
 }
 
 .message.gemini, /* Assuming 'gemini' class is added by script.js for bot messages */
@@ -57,27 +83,30 @@ body {
     text-align: left;
 }
 
+.message.system,
+.message.error-message { /* Consolidate system and error for similar base styling if desired */
+    margin-right: auto;
+    text-align: left;
+}
+
 .message.system { /* For messages from the 'system' sender */
     background-color: var(--vscode-notifications-background, #333333); /* Example system message style */
     color: var(--vscode-notifications-foreground, #cccccc);
     border: 1px dashed var(--vscode-editorWidget-border, #454545);
-    margin-right: auto;
-    text-align: left;
     font-style: italic;
 }
+
+.message.error-message { /* Specific class for errors, distinct from general system messages */
+    background-color: var(--vscode-inputValidation-errorBackground, #5a1d1d);
+    color: var(--vscode-inputValidation-errorForeground, #ffffff);
+    border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100);
+}
+
 
 .message.info { /* Retaining if used, though 'system' might cover this now */
     background-color: var(--vscode-editorWidget-background, #252526);
     color: var(--vscode-descriptionForeground, #7f7f7f);
     border: 1px dashed var(--vscode-editorWidget-border, #454545);
-    margin-right: auto;
-    text-align: left;
-}
-
-.message.error {
-    background-color: var(--vscode-inputValidation-errorBackground, #5a1d1d);
-    color: var(--vscode-inputValidation-errorForeground, #ffffff);
-    border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100);
     margin-right: auto;
     text-align: left;
 }
@@ -115,11 +144,12 @@ textarea#message-input {
     background-color: var(--vscode-input-background, #3c3c3c);
     color: var(--vscode-input-foreground, #cccccc);
     margin-right: 5px;
-    border-radius: 22px; /* Added for rounded ends */
-    min-height: 40px;
-    max-height: 150px;
+    border-radius: 3px; /* Standard border radius */
+    min-height: 40px; /* Adjust as needed */
+    max-height: 150px; /* Limit growth */
     font-family: inherit;
     font-size: inherit;
+    line-height: 1.4; /* Improved readability */
 }
 
 button#send-button {
@@ -129,8 +159,9 @@ button#send-button {
     border: none;
     border-radius: 3px;
     cursor: pointer;
-    align-self: flex-end;
+    align-self: flex-end; /* Align with bottom of textarea if it grows */
     transition: background-color 0.2s ease;
+    height: 40px; /* Match min-height of textarea for initial alignment */
 }
 
 button#send-button:hover {
@@ -178,9 +209,16 @@ button#send-button:hover {
 
 .file-preview-content pre {
     margin: 0;
-    white-space: pre-wrap;
-    word-break: break-all;
+    white-space: pre-wrap; /* Wrap lines within the pre block */
+    word-break: break-all; /* Break long words if necessary */
 }
+
+.file-preview-content code {
+    display: block; /* Make the code block take full width for consistent background */
+    white-space: pre; /* Preserve all whitespace, including multiple spaces and line breaks from diff */
+    /* overflow-x: auto; /* Add horizontal scroll if lines are very long and pre-wrap is not desired */
+}
+
 
 .file-preview-content button {
     margin-top: 10px;
@@ -209,14 +247,25 @@ button#send-button:hover {
     font-weight: bold;
 }
 
-/* Rudimentary styles for diff in preview (if script.js adds these classes) */
-.diff-added {
-    color: var(--vscode-gitDecoration-addedResourceForeground, #81B88B);
-    background-color: rgba(129, 184, 139, 0.1);
+/* Styles for diff view in preview */
+.diff-common, .diff-added, .diff-removed {
+    display: block; /* Each part on a new line if it represents multiple lines */
+    white-space: pre; /* Preserve whitespace from the diff part, crucial for indentation */
+    font-family: var(--vscode-editor-font-family, monospace);
+    line-height: 1.3; /* Adjust for readability */
 }
 
+.diff-added {
+    color: var(--vscode-gitDecoration-addedResourceForeground, #81B88B);
+    background-color: rgba(129, 184, 139, 0.1); /* Subtle background */
+}
 .diff-removed {
     color: var(--vscode-gitDecoration-deletedResourceForeground, #C74E39);
-    background-color: rgba(199, 78, 57, 0.1);
-    text-decoration: line-through;
+    background-color: rgba(199, 78, 57, 0.1); /* Subtle background */
+    /* text-decoration: line-through; -- Optional, can be noisy for multi-line blocks */
 }
+.diff-common {
+    color: var(--vscode-editor-foreground); /* Or a slightly dimmed color if preferred */
+    background-color: transparent;
+}
+

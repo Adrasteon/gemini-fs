@@ -12,7 +12,7 @@ export function activate(context: vscode.ExtensionContext) {
         const geminiService = new GeminiService(context);
         console.log('gemini-fs: GeminiService instantiated');
 
-        const fileService = new FileService(context, geminiService);
+        const fileService = new FileService({ geminiService });
         console.log('gemini-fs: FileService instantiated');
 
         console.log('Congratulations, your extension "gemini-fs" is now active!');
@@ -45,8 +45,9 @@ export function activate(context: vscode.ExtensionContext) {
                         enableScripts: true, // Enable scripts in the webview
                         localResourceRoots: [
                             vscode.Uri.joinPath(context.extensionUri, 'out'), // For compiled JS
-                            vscode.Uri.joinPath(context.extensionUri, 'src', 'webview') // For CSS and HTML template
-                        ]
+                            vscode.Uri.joinPath(context.extensionUri, 'src', 'webview') // For CSS, HTML template, and libraries
+                        ],
+                        retainContextWhenHidden: true // Optional: keep webview alive
                     }
                 );
 
@@ -55,10 +56,14 @@ export function activate(context: vscode.ExtensionContext) {
                 // Get URIs for webview resources
                 const scriptPathOnDisk = vscode.Uri.joinPath(context.extensionUri, 'out', 'webview.js');
                 const scriptUri = panel.webview.asWebviewUri(scriptPathOnDisk);
-
+   
                 // Assuming style.css is directly used from src/webview and not part of the esbuild process for webview.js
                 const stylePathOnDisk = vscode.Uri.joinPath(context.extensionUri, 'src', 'webview', 'style.css');
                 const styleUri = panel.webview.asWebviewUri(stylePathOnDisk);
+   
+                // URI for the diff library
+                //const diffLibPathOnDisk = vscode.Uri.joinPath(context.extensionUri, 'src', 'webview', 'lib', 'diff.min.js');
+                //const diffLibUri = panel.webview.asWebviewUri(diffLibPathOnDisk);
 
                 // Generate a nonce for CSP
                 const nonce = getNonce();
@@ -70,6 +75,7 @@ export function activate(context: vscode.ExtensionContext) {
                 htmlContent = htmlContent.replace(/\${cspSource}/g, panel.webview.cspSource);
                 htmlContent = htmlContent.replace(/\${nonce}/g, nonce);
                 htmlContent = htmlContent.replace('${scriptUri}', scriptUri.toString());
+                //htmlContent = htmlContent.replace('${diffLibUri}', diffLibUri.toString());
                 htmlContent = htmlContent.replace('${styleUri}', styleUri.toString());
 
                 console.log('gemini-fs: HTML content prepared');
@@ -78,43 +84,62 @@ export function activate(context: vscode.ExtensionContext) {
                 // Handle messages from the webview
                 panel.webview.onDidReceiveMessage(
                     async message => {
+                        // It's good practice to fetch API key and model name once if multiple cases might need them.
+                        // However, for 'getApiKey', it's fetched specifically.
+                        // For other actions involving FileService, we'll fetch them as needed or pass them down.
+
                         switch (message.command) {
                             case 'getApiKey':
                                 console.log('gemini-fs: Webview requested API key');
                                 const currentApiKey = await geminiService.getApiKey();
+                                console.log('[Extension.ts] Value from geminiService.getApiKey() for webview:', currentApiKey ? `Exists (ends with ...${currentApiKey.slice(-4)})` : `Not set/Empty`, `(Raw: "${currentApiKey}")`);
                                 panel.webview.postMessage({ command: 'apiKey', key: currentApiKey });
                                 return;
+
                             case 'sendToGemini':
-                                console.log('gemini-fs: Message from webview to Gemini:', message.text);
-                                await fileService.handleChatMessage(message.text, panel.webview);
-                                return;
-                            // New cases for handling confirmed file operations from webview
                             case 'confirmCreate':
-                                console.log('gemini-fs: Webview confirmed file creation for:', message.filePath);
-                                if (message.filePath && typeof message.proposedContent === 'string') {
-                                    await fileService.performConfirmedCreate(message.filePath, message.proposedContent, panel.webview);
-                                } else {
-                                    console.error('gemini-fs: Invalid payload for confirmCreate', message);
-                                    panel.webview.postMessage({ command: 'error', sender: 'system', text: 'Invalid data received for file creation.' });
-                                }
-                                return;
                             case 'confirmWrite':
-                                console.log('gemini-fs: Webview confirmed file write for:', message.filePath);
-                                if (message.filePath && typeof message.proposedContent === 'string') {
-                                    await fileService.performConfirmedWrite(message.filePath, message.proposedContent, panel.webview);
-                                } else {
-                                    console.error('gemini-fs: Invalid payload for confirmWrite', message);
-                                    panel.webview.postMessage({ command: 'error', sender: 'system', text: 'Invalid data received for file modification.' });
-                                }
-                                return;
                             case 'confirmDelete':
-                                console.log('gemini-fs: Webview confirmed file deletion for:', message.filePath);
-                                if (message.filePath) {
-                                    await fileService.performConfirmedDelete(message.filePath, panel.webview);
-                                } else {
-                                    console.error('gemini-fs: Invalid payload for confirmDelete', message);
-                                    panel.webview.postMessage({ command: 'error', sender: 'system', text: 'Invalid data received for file deletion.' });
+                                console.log('gemini-fs: Message from webview to Gemini:', message.text);
+                                const apiKey = await geminiService.getApiKey();
+                                console.log('[Extension.ts] Value from geminiService.getApiKey() for FileService:', apiKey ? `Exists (ends with ...${apiKey.slice(-4)})` : `Not set/Empty`, `(Raw: "${apiKey}")`);
+                                const modelName = vscode.workspace.getConfiguration('geminiFS').get<string>('modelName', 'gemini-1.5-flash-latest');
+
+                                let payloadForFileService: any = undefined;
+                                let messageTextForFileService = message.text;
+
+                                if (message.command === 'confirmCreate') {
+                                    console.log('gemini-fs: Webview confirmed file creation for:', message.filePath);
+                                    if (message.filePath && typeof message.proposedContent === 'string') {
+                                        payloadForFileService = { command: 'confirmCreateFile', filePath: message.filePath, content: message.proposedContent };
+                                        messageTextForFileService = ''; // No text needed when payload command is present
+                                    } else {
+                                        console.error('gemini-fs: Invalid payload for confirmCreate', message);
+                                        panel.webview.postMessage({ command: 'geminiResponse', sender: 'system', text: 'Invalid data received for file creation.', isError: true });
+                                        return;
+                                    }
+                                } else if (message.command === 'confirmWrite') {
+                                    console.log('gemini-fs: Webview confirmed file write for:', message.filePath);
+                                    if (message.filePath && typeof message.proposedContent === 'string') {
+                                        payloadForFileService = { command: 'confirmWriteFile', filePath: message.filePath, newContent: message.proposedContent };
+                                        messageTextForFileService = ''; // No text needed
+                                    } else {
+                                        console.error('gemini-fs: Invalid payload for confirmWrite', message);
+                                        panel.webview.postMessage({ command: 'geminiResponse', sender: 'system', text: 'Invalid data received for file modification.', isError: true });
+                                        return;
+                                    }
+                                } else if (message.command === 'confirmDelete') {
+                                    console.log('gemini-fs: Webview confirmed file deletion for:', message.filePath);
+                                    if (message.filePath) {
+                                        payloadForFileService = { command: 'confirmDeleteFile', filePath: message.filePath };
+                                        messageTextForFileService = ''; // No text needed
+                                    } else {
+                                        console.error('gemini-fs: Invalid payload for confirmDelete', message);
+                                        panel.webview.postMessage({ command: 'geminiResponse', sender: 'system', text: 'Invalid data received for file deletion.', isError: true });
+                                        return;
+                                    }
                                 }
+                                await fileService.handleChatMessage(messageTextForFileService, panel.webview, apiKey as string, modelName as string, payloadForFileService || message.payload);
                                 return;
                             // Case for when user discards changes from a preview in the webview
                             case 'discardChanges': // This command might be sent by webview if user clicks "Discard"

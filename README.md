@@ -12,7 +12,9 @@ Gemini FS Chat is a VS Code extension that allows you to interact with the Googl
     *   `/create <filePath> [description]`: Create new files.
         *   If a description is provided, Gemini will generate the initial content for the file.
         *   A preview of the Gemini-generated content is shown for confirmation before the file is created. (Implemented and Tested)
-    *   `/write <filePath> <description>`: Modify existing files, with Gemini proposing changes based on your instructions. (Framework in place, webview confirmation implemented, full Gemini content generation/diffing and end-to-end flow under active development).
+    *   `/write <filePath> <description>`: Modify existing files, with Gemini proposing changes based on your instructions.
+        *   A webview preview displays a line-by-line diff of the proposed changes against the original content.
+        *   User can confirm to apply changes or discard them. (Implemented and Tested)
     *   `/delete <filePath>`: Securely delete files and folders. (Framework in place, webview confirmation implemented, end-to-end flow under active development).
 *   **Context Management for Chat:**
     *   `/context <filePath>`: Loads the content of the specified file into the chat context for subsequent Gemini queries.
@@ -38,7 +40,7 @@ Gemini FS Chat is a VS Code extension that allows you to interact with the Googl
     *   Secure path resolution.
     *   Webview UI for displaying proposed content/changes and prompting for user confirmation (e.g., "Apply Changes", "Confirm Delete" buttons).
     *   Logic in `extension.ts` to receive these confirmations from the webview and call the appropriate `FileService` methods (`performConfirmedWrite`, `performConfirmedDelete`).
-*   Full integration with `GeminiService` for content modification for the `/write` command, and advanced diff display in the webview are the next immediate development focus.
+*   The `/write` command now features a webview-based diff display. Further refinement of Gemini prompts for complex modifications is ongoing.
 *   Planning and initial design for Natural Language Functions (NLF), voice control, and enhanced accessibility features are ongoing.
 
 ## Requirements
@@ -106,7 +108,6 @@ The development of Gemini FS Chat is planned in phases:
 *   **Phase 2: File System Write/Create/Delete Operations with Confirmation (In Progress)**
     *   Implement `/create <filePath> [content_description]` allowing Gemini to generate content. (Complete and Tested).
     *   Implement `/write <filePath> <modification_description>` allowing Gemini to propose changes. (Webview confirmation flow complete, Gemini integration for content modification in progress).
-    *   Implement `/delete <filePath>` with non-negotiable, clear confirmation prompts in the webview. (Webview confirmation flow complete, final execution logic in progress).
     *   Develop robust webview UI for previewing proposed content/changes (including VS Code diff integration) and clear user confirmation buttons. (Basic preview in place, diff integration planned).
 *   **Phase 3: Foundational NLF and Voice I/O (Planned)**
     *   Integrate basic Voice-to-Text (VTT) and Text-to-Speech (TTV) in the webview (initially using Web Speech API).
@@ -132,8 +133,6 @@ The development of Gemini FS Chat is planned in phases:
     *   Exploration of more advanced VTT/TTV libraries/services if Web Speech API proves insufficient.
 
 ## Known Issues
-
-*   The UI for previewing file modifications and displaying diffs is basic; advanced diffing (e.g., side-by-side, syntax highlighting in preview) is not yet implemented for `/write`.
 *   Error handling and user feedback can be further improved for edge cases.
 *   While core `FileService` operations are unit tested, test coverage for webview interactions and end-to-end flows for `/write` and `/delete` is still to be expanded.
 *   Initial NLF and voice features (when implemented) may have limitations in understanding complex commands or accents.

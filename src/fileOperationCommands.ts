@@ -140,7 +140,7 @@ export class FileOperationCommands {
         if (!apiKey || !modelToUse) {
             this.showSystemMessage(webview, "API key or model not set. Cannot generate content.", this.currentHistory);
             webview.postMessage({
-                command: 'showFilePreviewForCreate',
+                command: 'showFilePreviewForCreate', // Updated command
                 filePath: resolvedPath.relativePath,
                 proposedContent: '',
                 description: "API key/model not set. Create empty file?",
@@ -152,7 +152,7 @@ export class FileOperationCommands {
         this.showSystemMessage(webview, `Gemini is generating content for ${resolvedPath.relativePath}...`);
         
         const historyForGemini: ChatMessage[] = [
-            ...this.currentHistory.slice(0, -1), 
+            ...this.currentHistory.slice(0, -1), // Exclude the user's '/create' command itself from this specific Gemini prompt history
             { role: 'user', parts: [{ text: `Generate content for a new file named "${resolvedPath.relativePath}" based on the following description: ${description}. Provide only the raw file content.` }] }
         ];
         
@@ -170,7 +170,7 @@ export class FileOperationCommands {
             const generatedContent = await this.geminiService.askGeminiWithHistory(historyForGemini);
             this.currentHistory.push({ role: 'model', parts: [{ text: `Okay, I've generated content for ${resolvedPath.relativePath}. Please review and confirm.` }] });
             webview.postMessage({
-                command: 'showFilePreviewForCreate',
+                command: 'showFilePreviewForCreate', // Updated command
                 filePath: resolvedPath.relativePath,
                 proposedContent: generatedContent,
                 description: `Preview of content for ${resolvedPath.relativePath}:`,
@@ -181,7 +181,7 @@ export class FileOperationCommands {
             this.showSystemMessage(webview, errorMessage, this.currentHistory);
             console.error(errorMessage, error);
             webview.postMessage({
-                command: 'showFilePreviewForCreate',
+                command: 'showFilePreviewForCreate', // Updated command
                 filePath: resolvedPath.relativePath,
                 proposedContent: '',
                 description: `Error generating content. Create empty file for ${resolvedPath.relativePath}?`,
@@ -267,7 +267,7 @@ export class FileOperationCommands {
         this.showSystemMessage(webview, `Gemini is analyzing ${resolvedPath.relativePath} and preparing modifications...`);
 
         const historyForGemini: ChatMessage[] = [
-            ...this.currentHistory.slice(0,-1),
+            ...this.currentHistory.slice(0,-1), // Exclude the user's '/write' command itself
             { role: 'user', parts: [{ text: `The current content of the file "${resolvedPath.relativePath}" is:\n\`\`\`\n${originalContent}\n\`\`\`\n\nPlease modify this content based on the following instruction: ${description}. Provide the complete new content of the file. Output only the raw file content.` }] }
         ];
         
@@ -275,19 +275,19 @@ export class FileOperationCommands {
         if (contextualContent.length > 0) {
             const contextPreambleMessages: ChatMessage[] = [];
             contextualContent.forEach(item => {
-                if (item.path !== resolvedPath.relativePath) {
+                if (item.path !== resolvedPath.relativePath) { // Don't include the file being written in its own context preamble
                     contextPreambleMessages.push({ role: 'user', parts: [{ text: `CONTEXT FILE: ${item.path}\n\`\`\`\n${item.content}\n\`\`\`` }] });
                     contextPreambleMessages.push({ role: 'model', parts: [{ text: `Acknowledged context for ${item.path}.` }] });
                 }
             });
-            historyForGemini.splice(-1, 0, ...contextPreambleMessages);
+            historyForGemini.splice(-1, 0, ...contextPreambleMessages); // Insert before the main user prompt
         }
 
         try {
             const proposedNewContent = await this.geminiService.askGeminiWithHistory(historyForGemini);
             this.currentHistory.push({ role: 'model', parts: [{ text: `Okay, I've prepared modifications for ${resolvedPath.relativePath}. Please review and confirm.` }] });
             webview.postMessage({
-                command: 'showFilePreviewForWrite',
+                command: 'showFilePreviewForWrite', // Updated command
                 filePath: resolvedPath.relativePath,
                 originalContent: originalContent,
                 proposedContent: proposedNewContent,
@@ -335,10 +335,11 @@ export class FileOperationCommands {
         }
 
         try {
-            await vscode.workspace.fs.stat(resolvedPath.uri);
+            await vscode.workspace.fs.stat(resolvedPath.uri); // Check if path exists
             webview.postMessage({
-                command: 'confirmDelete',
+                command: 'confirmDelete', // Matches command in script.js
                 filePath: resolvedPath.relativePath,
+                message: `Are you absolutely sure you want to delete ${resolvedPath.relativePath}? This action cannot be undone easily.`, // Send the message from here
                 history: [...this.currentHistory]
             });
         } catch (error: any) {
@@ -365,6 +366,7 @@ export class FileOperationCommands {
             const successMsg = `Successfully deleted: ${resolvedPath.relativePath}`;
             this.showSystemMessage(webview, successMsg, this.currentHistory);
             
+            // Remove from context if it was there
             const contextIndex = contextualContentRef.findIndex(c => c.path === resolvedPath.relativePath);
             if (contextIndex > -1) {
                 contextualContentRef.splice(contextIndex, 1);

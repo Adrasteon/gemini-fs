@@ -3,7 +3,7 @@
   "displayName": "Gemini FS Chat",
   "description": "Interact with Gemini and your local file system via a chat interface.",
   "version": "0.0.1",
-  "publisher": "YourPublisherName",
+  "publisher": "Adrasteon - Samar Designs",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -42,13 +42,17 @@
     "build": "node esbuild.js",
     "build:prod": "node esbuild.js --production",
     "watch:src": "node esbuild.js --watch",
-    "watch": "npm-run-all --parallel watch:src watch-tests",
+    "build:webview": "node esbuild.js",
+    "watch:webview": "node esbuild.js --watch",
+    "watch": "pnpm-run-all --parallel watch:src watch-tests",
     "lint": "eslint src --ext ts",
     "test": "vscode-test",
-    "watch-tests": "tsc -p ./src/test/tsconfig.json --watch"
+    "watch-tests": "tsc -p ./src/test/tsconfig.json --watch",
+    "postinstall": "pnpm run build:webview"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.24.1"
+    "@google/generative-ai": "^0.24.1",
+    "diff": "^5.2.0"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
